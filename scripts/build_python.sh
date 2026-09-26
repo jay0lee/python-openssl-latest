@@ -108,6 +108,17 @@ fi
 # Strip binary to reduce package size
 strip python3 || true
 
+# On macOS, fix dylib install name and executable references to use @rpath for full relocatability
+if [[ "$RUNNER_OS" == "Darwin" || "$RUNNER_OS" == "macOS" ]]; then
+  MAJOR_MINOR="${MAJOR_PY}.${MINOR_PY}"
+  DYLIB_NAME="libpython${MAJOR_MINOR}.dylib"
+  if [[ -f "${INSTALL_DIR}/lib/${DYLIB_NAME}" ]]; then
+    install_name_tool -id "@rpath/${DYLIB_NAME}" "${INSTALL_DIR}/lib/${DYLIB_NAME}" || true
+    install_name_tool -change "${INSTALL_DIR}/lib/${DYLIB_NAME}" "@rpath/${DYLIB_NAME}" "${INSTALL_DIR}/bin/python3" || true
+    install_name_tool -change "${INSTALL_DIR}/lib/${DYLIB_NAME}" "@rpath/${DYLIB_NAME}" "${INSTALL_DIR}/bin/python${MAJOR_MINOR}" || true
+  fi
+fi
+
 # Test the newly compiled Python and OpenSSL integration
 export PATH="${INSTALL_DIR}/bin:${PATH}"
 export LD_LIBRARY_PATH="${INSTALL_DIR}/lib:${OPENSSL_INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"

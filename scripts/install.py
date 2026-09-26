@@ -180,24 +180,30 @@ def main():
     target_arch = runner["arch"]
     target_family = runner["os_family"]
 
-    for asset in assets:
-        name = asset["name"]
-        if target_arch in name and target_label in name:
+    valid_extensions = (".tar.xz", ".zip", ".tar.gz")
+    package_assets = [a for a in assets if any(a["name"].endswith(ext) for ext in valid_extensions)]
+
+    t_arch = target_arch.lower()
+    t_label = target_label.lower()
+    t_family = target_family.lower()
+
+    for asset in package_assets:
+        n = asset["name"].lower()
+        if t_arch in n and t_label in n:
             selected_asset = asset
             break
 
     if not selected_asset:
-        for asset in assets:
-            name = asset["name"]
-            if target_arch in name and target_family in name:
+        for asset in package_assets:
+            n = asset["name"].lower()
+            if t_arch in n and t_family in n:
                 selected_asset = asset
                 break
 
     if not selected_asset:
-        # Fallback: check any asset with target_arch and standard extensions
-        for asset in assets:
-            name = asset["name"]
-            if target_arch in name and (name.endswith(".tar.xz") or name.endswith(".zip")):
+        for asset in package_assets:
+            n = asset["name"].lower()
+            if t_arch in n:
                 selected_asset = asset
                 break
 
@@ -268,18 +274,46 @@ def main():
                     lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
                     f.write(f"DYLD_LIBRARY_PATH={lib_paths}:${{DYLD_LIBRARY_PATH:-}}\n")
 
+    # Ensure macOS relocatability via install_name_tool if needed
+    if runner["os_family"] == "macos" and shutil.which("install_name_tool"):
+        lib_dir = os.path.join(py_root, "lib")
+        if os.path.isdir(lib_dir):
+            for fname in os.listdir(lib_dir):
+                if fname.startswith("libpython") and fname.endswith(".dylib"):
+                    dylib_path = os.path.join(lib_dir, fname)
+                    subprocess.call(["install_name_tool", "-id", f"@rpath/{fname}", dylib_path], stderr=subprocess.DEVNULL)
+                    for py_exec in [os.path.join(py_bin_dir, "python3"), os.path.join(py_bin_dir, "python"), py_bin]:
+                        if os.path.isfile(py_exec):
+                            try:
+                                otool_out = subprocess.check_output(["otool", "-L", py_exec]).decode()
+                                for line in otool_out.splitlines():
+                                    if fname in line and "@rpath" not in line:
+                                        old_ref = line.strip().split()[0]
+                                        subprocess.call(["install_name_tool", "-change", old_ref, f"@rpath/{fname}", py_exec], stderr=subprocess.DEVNULL)
+                            except Exception:
+                                pass
+
+    # Prepare environment for verification commands
+    run_env = os.environ.copy()
+    if runner["os_family"] == "linux":
+        lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
+        run_env["LD_LIBRARY_PATH"] = f"{lib_paths}:{run_env.get('LD_LIBRARY_PATH', '')}"
+    elif runner["os_family"] == "macos":
+        lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
+        run_env["DYLD_LIBRARY_PATH"] = f"{lib_paths}:{run_env.get('DYLD_LIBRARY_PATH', '')}"
+
     # Verify python and openssl
     print("\nVerifying installed bundle:")
     sys.stdout.flush()
-    subprocess.check_call([py_bin, "-VV"])
+    subprocess.check_call([py_bin, "-VV"], env=run_env)
     ver_cmd = [py_bin, "-c", "import ssl; print(f'Using OpenSSL: {ssl.OPENSSL_VERSION}')"]
-    subprocess.check_call(ver_cmd)
+    subprocess.check_call(ver_cmd, env=run_env)
 
     # Set GITHUB_OUTPUT
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
-        py_ver_out = subprocess.check_output([py_bin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"]).decode().strip()
-        ssl_ver_out = subprocess.check_output([py_bin, "-c", "import ssl; print(ssl.OPENSSL_VERSION)"]).decode().strip()
+        py_ver_out = subprocess.check_output([py_bin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"], env=run_env).decode().strip()
+        ssl_ver_out = subprocess.check_output([py_bin, "-c", "import ssl; print(ssl.OPENSSL_VERSION)"], env=run_env).decode().strip()
         with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"python-path={py_bin}\n")
             f.write(f"python-version={py_ver_out}\n")
