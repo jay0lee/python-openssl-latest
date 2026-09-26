@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up latest Python and OpenSSL
-        uses: gam-team/python-openssl-latest@v1
+        uses: jay0lee/python-openssl-latest@v1
 
       - name: Verify Environment
         run: |
@@ -50,7 +50,7 @@ jobs:
 
 ```yaml
 - name: Set up Python and OpenSSL
-  uses: gam-team/python-openssl-latest@v1
+  uses: jay0lee/python-openssl-latest@v1
   with:
     version: 'v3.14.7-ossl4.0.2' # or 'latest'
 ```
@@ -105,7 +105,7 @@ In GAM's `.github/workflows/build.yml`, consuming this reusable action replaces:
 **After:**
 ```yaml
 - name: Set up latest Python and OpenSSL
-  uses: gam-team/python-openssl-latest@v1
+  uses: jay0lee/python-openssl-latest@v1
 
 # $PYTHON, $OPENSSL_INSTALL_PATH, and $PATH are already configured and verified!
 - name: Create venv and install dependencies
@@ -165,6 +165,16 @@ In GAM's `.github/workflows/build.yml`, consuming this reusable action replaces:
 - Bundles are compressed into `python-<py_ver>-openssl-<ossl_ver>-<runner>-<arch>.tar.xz` (or `.zip` for Windows).
 - SHA256 checksums are generated and published alongside a structured `manifest.json`.
 - Both version-specific releases (`v3.14.7-ossl4.0.2`) and a floating `latest` release are published.
+
+### 4. GAM & GYB Runtime Validation Suite (`scripts/validate_runtime.py`)
+Every compiled Python + OpenSSL runtime bundle undergoes an automated, comprehensive verification suite before packaging (and during end-to-end testing of `action.yml`). The suite uses only Python's standard library with zero third-party dependencies:
+- **OpenSSL & TLS Handshake**: Establishes an HTTPS TLS connection to `https://www.googleapis.com` verifying TLS 1.3/1.2 negotiation, modern cipher suites, SNI, ALPN, and system CA root certificates.
+- **SQLite3 WAL & High Concurrency**: Tests SQLite batch CRUD operations (10,000 records), Write-Ahead Logging (`PRAGMA journal_mode=WAL`), schema migrations, and thread-safety (`sqlite3.threadsafety == 3`).
+- **Multiprocessing Concurrency**: Executes `concurrent.futures.ProcessPoolExecutor` multi-worker process pools (`forkserver` / `spawn`), testing IPC queues, worker initialization, and task distribution across physical CPU cores.
+- **Multithreading & Synchronization**: Validates multi-thread worker pool synchronization using `threading.Lock` and `queue.Queue` without race conditions.
+- **Compression Engines**: Benchmarks round-trip compression and decompression across `zlib`, `bz2`, and `lzma` (XZ), ensuring GAM / GYB archive handling is fast and intact.
+- **Cryptographic Hashing Throughput**: Validates SHA-256 and SHA-512 throughput (> 100 MB/s) backed directly by the compiled OpenSSL `EVP` engine via Python's `_hashlib`.
+- **JSON Serialization Accelerator**: Benchmarks high-volume serialization and parsing of Google API response payloads ensuring the C accelerator (`_json`) is active.
 
 ---
 
