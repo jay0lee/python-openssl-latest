@@ -348,7 +348,7 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
             "os": canonical_label,
             "os_family": os_family,
             "arch": arch,
-            "name": f"{os_family.capitalize()} {arch} ({canonical_label})",
+            "name": canonical_label,
             "deprecated": deprecated,
             "paid": is_paid,
             "first_brownout": first_brownout_str,
@@ -368,19 +368,19 @@ def get_supported_runners(token=None, current_date=None, free_only=True):
         all_runners = parse_available_runners_from_readme(readme_content, token, current_date, free_only=free_only)
     else:
         all_runners = [
-            {"os": "ubuntu-26.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-26.04)", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-26.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-26.04-arm)", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-24.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-24.04)", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-24.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-24.04-arm)", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-22.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-22.04)", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-22.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-22.04-arm)", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-15", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-15)", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-15-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-15-intel)", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-26", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-26)", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-26-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-26-intel)", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-2025", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2025)", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-2022", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2022)", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-11-arm", "os_family": "windows", "arch": "arm64", "name": "Windows arm64 (windows-11-arm)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-26.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-26.04", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-26.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-26.04-arm", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-24.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-24.04", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-24.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-24.04-arm", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-22.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-22.04", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-22.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-22.04-arm", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-15", "os_family": "macos", "arch": "arm64", "name": "macos-15", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-15-intel", "os_family": "macos", "arch": "x64", "name": "macos-15-intel", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-26", "os_family": "macos", "arch": "arm64", "name": "macos-26", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-26-intel", "os_family": "macos", "arch": "x64", "name": "macos-26-intel", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-2025", "os_family": "windows", "arch": "x64", "name": "windows-2025", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-2022", "os_family": "windows", "arch": "x64", "name": "windows-2022", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-11-arm", "os_family": "windows", "arch": "arm64", "name": "windows-11-arm", "deprecated": False, "paid": False, "active": True},
         ]
 
     seen = set()

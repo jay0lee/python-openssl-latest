@@ -35,7 +35,7 @@ permissions:
 jobs:
   discover:
     name: 'Discover Runners and Versions'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.discovery.outputs.matrix }}
       python_version: ${{ steps.discovery.outputs.python_version }}
@@ -44,10 +44,10 @@ jobs:
       should_build: ${{ steps.check-release.outputs.should_build }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -103,7 +103,7 @@ jobs:
       OS_FAMILY: ${{ matrix.os_family }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Windows MSVC environment setup
       - name: Setup MSVC developer command prompt (Windows)
@@ -198,7 +198,7 @@ jobs:
 
       # Upload Artifact for Release Job
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.os }}-${{ matrix.arch }}
           path: |
@@ -208,15 +208,15 @@ jobs:
   publish:
     name: 'Publish GitHub Release'
     needs: [discover, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all matrix build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ./release-assets
           pattern: package-*
