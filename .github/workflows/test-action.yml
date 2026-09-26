@@ -1,0 +1,35 @@
+name: 'Test Reusable Action & Scripts'
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: 'Unit Tests (Matrix & Deprecation Discovery)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run unit tests
+        run: |
+          python3 -m unittest discover -s tests -v
+
+  test-discovery-dry-run:
+    name: 'Discovery Dry Run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test dynamic runner matrix discovery
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/discover_matrix.py --output-json

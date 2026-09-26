@@ -1,0 +1,76 @@
+name: 'Setup Latest Python and OpenSSL'
+description: 'Installs the latest stable version of Python compiled with custom OpenSSL matching GAM compilation specifications across Linux, macOS, and Windows.'
+author: 'GAM Team'
+branding:
+  icon: 'terminal'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'Target release tag or "latest" to automatically fetch the newest stable release'
+    required: false
+    default: 'latest'
+  install-dir:
+    description: 'Custom path where Python and OpenSSL should be installed (defaults to runner tool cache)'
+    required: false
+    default: ''
+  set-env:
+    description: 'Automatically export PATH, PYTHON, OPENSSL_INSTALL_PATH, LD_LIBRARY_PATH, and DYLD_LIBRARY_PATH'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token used to query releases and download assets'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  python-path:
+    description: 'Full path to the installed Python executable'
+    value: ${{ steps.install.outputs.python-path }}
+  python-version:
+    description: 'Installed Python version'
+    value: ${{ steps.install.outputs.python-version }}
+  openssl-path:
+    description: 'Root directory of the installed OpenSSL'
+    value: ${{ steps.install.outputs.openssl-path }}
+  openssl-version:
+    description: 'Version of OpenSSL linked with Python'
+    value: ${{ steps.install.outputs.openssl-version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and install Python with OpenSSL
+      id: install
+      shell: bash
+      run: |
+        if command -v python3 >/dev/null 2>&1; then
+          PY_CMD="python3"
+        elif command -v python >/dev/null 2>&1; then
+          PY_CMD="python"
+        else
+          echo "Error: Python interpreter is required to run the installer script" >&2
+          exit 1
+        fi
+
+        ACTION_DIR="${{ github.action_path }}"
+        REPO="${{ github.action_repository }}"
+        if [ -z "$REPO" ]; then
+          REPO="${{ github.repository }}"
+        fi
+
+        ARGS=(
+          "--repo" "$REPO"
+          "--version" "${{ inputs.version }}"
+          "--token" "${{ inputs.github-token }}"
+        )
+
+        if [ "${{ inputs.set-env }}" = "true" ]; then
+          ARGS+=("--set-env")
+        fi
+
+        if [ -n "${{ inputs.install-dir }}" ]; then
+          ARGS+=("--install-dir" "${{ inputs.install-dir }}")
+        fi
+
+        "$PY_CMD" "${ACTION_DIR}/scripts/install.py" "${ARGS[@]}"

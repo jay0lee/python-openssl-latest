@@ -1,0 +1,289 @@
+name: 'Build and Release Python + OpenSSL'
+
+on:
+  schedule:
+    # Run weekly every Sunday at 04:00 UTC
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: 'Specific Python version (leave blank for latest stable)'
+        required: false
+        default: ''
+      openssl_version:
+        description: 'Specific OpenSSL version (leave blank for latest stable)'
+        required: false
+        default: ''
+      force_rebuild:
+        description: 'Force rebuild even if release already exists'
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-and-release.yml'
+      - 'scripts/**'
+      - 'patches/**'
+      - 'action.yml'
+
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
+jobs:
+  discover:
+    name: 'Discover Runners and Versions'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discovery.outputs.matrix }}
+      python_version: ${{ steps.discovery.outputs.python_version }}
+      openssl_version: ${{ steps.discovery.outputs.openssl_version }}
+      release_tag: ${{ steps.discovery.outputs.release_tag }}
+      should_build: ${{ steps.check-release.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Discover dynamic matrix and versions
+        id: discovery
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARGS=()
+          if [ -n "${{ github.event.inputs.python_version }}" ]; then
+            ARGS+=("--python-version" "${{ github.event.inputs.python_version }}")
+          fi
+          if [ -n "${{ github.event.inputs.openssl_version }}" ]; then
+            ARGS+=("--openssl-version" "${{ github.event.inputs.openssl_version }}")
+          fi
+          python3 scripts/discover_matrix.py "${ARGS[@]}"
+
+      - name: Check if release already exists
+        id: check-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.discovery.outputs.release_tag }}
+          FORCE_REBUILD: ${{ github.event.inputs.force_rebuild }}
+        run: |
+          if [ "$FORCE_REBUILD" = "true" ]; then
+            echo "Force rebuild requested."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            # Check if all assets exist or rebuild is needed
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "Release $RELEASE_TAG does not exist yet. Proceeding with build."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: ${{ matrix.name }}
+    needs: discover
+    if: needs.discover.outputs.should_build == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    env:
+      PYTHON_VERSION: ${{ needs.discover.outputs.python_version }}
+      OPENSSL_VERSION: ${{ needs.discover.outputs.openssl_version }}
+      RUNNER_LABEL: ${{ matrix.os }}
+      RUNNER_ARCH: ${{ matrix.arch }}
+      OS_FAMILY: ${{ matrix.os_family }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Windows MSVC environment setup
+      - name: Setup MSVC developer command prompt (Windows)
+        if: matrix.os_family == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Setup NASM (Windows x64)
+        if: matrix.os_family == 'windows' && matrix.arch == 'x64'
+        uses: ilammy/setup-nasm@v1
+
+      # Linux dependencies setup
+      - name: Install Linux build dependencies
+        if: matrix.os_family == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libffi-dev zlib1g-dev libsqlite3-dev
+
+      # Build OpenSSL (Unix)
+      - name: Build OpenSSL (Linux / macOS)
+        if: matrix.os_family != 'windows'
+        run: |
+          OPENSSL_SRC="${RUNNER_TEMP}/src/openssl"
+          OPENSSL_INSTALL="${RUNNER_TEMP}/install/ssl"
+          ./scripts/build_openssl.sh "$OPENSSL_VERSION" "$OPENSSL_SRC" "$OPENSSL_INSTALL"
+
+      # Build OpenSSL (Windows)
+      - name: Build OpenSSL (Windows)
+        if: matrix.os_family == 'windows'
+        shell: powershell
+        run: |
+          $osslSrc = Join-Path $env:RUNNER_TEMP "src\openssl"
+          $osslInstall = Join-Path $env:RUNNER_TEMP "install\ssl"
+          .\scripts\build_openssl.ps1 -OpenSSLVersion $env:OPENSSL_VERSION -SourceDir $osslSrc -InstallDir $osslInstall -Arch $env:RUNNER_ARCH
+
+      # Build Python (Unix)
+      - name: Build Python (Linux / macOS)
+        if: matrix.os_family != 'windows'
+        run: |
+          OPENSSL_INSTALL="${RUNNER_TEMP}/install/ssl"
+          PYTHON_SRC="${RUNNER_TEMP}/src/cpython"
+          PYTHON_INSTALL="${RUNNER_TEMP}/install/python"
+          ./scripts/build_python.sh "$PYTHON_VERSION" "$OPENSSL_VERSION" "$OPENSSL_INSTALL" "$PYTHON_SRC" "$PYTHON_INSTALL"
+
+      # Build Python (Windows)
+      - name: Build Python (Windows)
+        if: matrix.os_family == 'windows'
+        shell: powershell
+        run: |
+          $osslInstall = Join-Path $env:RUNNER_TEMP "install\ssl"
+          $pySrc = Join-Path $env:RUNNER_TEMP "src\cpython"
+          $pyInstall = Join-Path $env:RUNNER_TEMP "install\python"
+          .\scripts\build_python.ps1 -PythonVersion $env:PYTHON_VERSION -OpenSSLVersion $env:OPENSSL_VERSION -OpenSSLInstallDir $osslInstall -SourceDir $pySrc -InstallDir $pyInstall -Arch $env:RUNNER_ARCH
+
+      # Package bundle
+      - name: Package compiled bundle (Unix)
+        if: matrix.os_family != 'windows'
+        id: package-unix
+        run: |
+          PACKAGE_NAME="python-${PYTHON_VERSION}-openssl-${OPENSSL_VERSION}-${RUNNER_LABEL}-${RUNNER_ARCH}.tar.xz"
+          mkdir -p "${RUNNER_TEMP}/dist"
+          cd "${RUNNER_TEMP}/install"
+          tar -cJf "${RUNNER_TEMP}/dist/${PACKAGE_NAME}" python ssl
+          cd "${RUNNER_TEMP}/dist"
+          sha256sum "${PACKAGE_NAME}" > "${PACKAGE_NAME}.sha256"
+          echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "package_path=${RUNNER_TEMP}/dist/${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Package compiled bundle (Windows)
+        if: matrix.os_family == 'windows'
+        id: package-windows
+        shell: powershell
+        run: |
+          $pkgName = "python-${env:PYTHON_VERSION}-openssl-${env:OPENSSL_VERSION}-${env:RUNNER_LABEL}-${env:RUNNER_ARCH}.zip"
+          $distDir = Join-Path $env:RUNNER_TEMP "dist"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          $pkgPath = Join-Path $distDir $pkgName
+          $installDir = Join-Path $env:RUNNER_TEMP "install"
+          Compress-Archive -Path (Join-Path $installDir "*") -DestinationPath $pkgPath -Force
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $pkgPath).Hash.ToLower()
+          Set-Content -Path "${pkgPath}.sha256" -Value "$hash *$pkgName"
+          echo "package_name=$pkgName" >> $env:GITHUB_OUTPUT
+          echo "package_path=$pkgPath" >> $env:GITHUB_OUTPUT
+
+      # Upload Artifact for Release Job
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/dist/*
+          retention-days: 2
+
+  publish:
+    name: 'Publish GitHub Release'
+    needs: [discover, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all matrix build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-assets
+          pattern: package-*
+          merge-multiple: true
+
+      - name: Generate release manifest and checksums
+        id: manifest
+        run: |
+          cd ./release-assets
+          cat *.sha256 > SHA256SUMS.txt || true
+
+          python3 -c "
+          import os, json, glob, hashlib
+          assets = glob.glob('*.tar.xz') + glob.glob('*.zip')
+          packages = {}
+          for a in assets:
+              h = hashlib.sha256(open(a, 'rb').read()).hexdigest()
+              packages[a] = {
+                  'filename': a,
+                  'sha256': h
+              }
+          manifest = {
+              'release_tag': '${{ needs.discover.outputs.release_tag }}',
+              'python_version': '${{ needs.discover.outputs.python_version }}',
+              'openssl_version': '${{ needs.discover.outputs.openssl_version }}',
+              'packages': packages
+          }
+          with open('manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+          "
+          ls -la
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.discover.outputs.release_tag }}
+          PY_VER: ${{ needs.discover.outputs.python_version }}
+          OSSL_VER: ${{ needs.discover.outputs.openssl_version }}
+        run: |
+          RELEASE_TITLE="Python ${PY_VER} + OpenSSL ${OSSL_VER}"
+          RELEASE_NOTES="### Automated Weekly Build: Python ${PY_VER} & OpenSSL ${OSSL_VER}
+
+          Compiled using GAM compilation specifications (hardened static OpenSSL, optimized Python with LTO & PGO).
+
+          Supported Runners and Architectures:
+          - Windows (x64, arm64)
+          - Linux Ubuntu (x64, arm64)
+          - macOS (x64 Intel, arm64 Apple Silicon)
+
+          Consuming projects (such as GAM and GYB) can install this release using:
+          \`\`\`yaml
+          - uses: ${{ github.repository }}@v1
+            with:
+              version: '${TAG}'
+          \`\`\`
+          "
+
+          # Create or update release
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing release $TAG..."
+            gh release upload "$TAG" ./release-assets/* --clobber
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" ./release-assets/* \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+          # Also update rolling 'latest' release
+          if gh release view "latest" >/dev/null 2>&1; then
+            gh release upload "latest" ./release-assets/* --clobber
+            gh release edit "latest" --title "Latest: Python ${PY_VER} + OpenSSL ${OSSL_VER}" --notes "$RELEASE_NOTES"
+          else
+            gh release create "latest" ./release-assets/* \
+              --title "Latest: Python ${PY_VER} + OpenSSL ${OSSL_VER}" \
+              --notes "$RELEASE_NOTES"
+          fi

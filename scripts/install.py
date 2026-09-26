@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""
+install.py
+
+Runtime installer called by the reusable GitHub Action.
+1. Detects runner OS and architecture.
+2. Discovers matching pre-compiled Python & OpenSSL bundle from repository releases.
+3. Downloads, verifies SHA256, and extracts into install directory.
+4. Exports environment variables (GITHUB_PATH, GITHUB_ENV, GITHUB_OUTPUT).
+5. Verifies Python and OpenSSL functionality.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import re
+import shutil
+import ssl
+import subprocess
+import sys
+import tarfile
+import urllib.request
+import zipfile
+
+
+def create_ssl_context():
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except Exception:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def download_file(url, target_path, token=None):
+    """Download a remote URL to target_path with auth if provided."""
+    headers = {"User-Agent": "python-openssl-installer"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+
+    req = urllib.request.Request(url, headers=headers)
+    ctx = create_ssl_context()
+    print(f"Downloading {url} -> {target_path} ...", flush=True)
+    with urllib.request.urlopen(req, context=ctx) as resp, open(target_path, "wb") as f:
+        shutil.copyfileobj(resp, f)
+
+
+def compute_sha256(filepath):
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def detect_runner_info():
+    """Detect current runner OS family, specific runner image label, and arch."""
+    sys_name = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if "arm" in machine or "aarch64" in machine:
+        arch = "arm64"
+    else:
+        arch = "x64"
+
+    os_family = "linux"
+    specific_label = None
+
+    if sys_name == "linux":
+        os_family = "linux"
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release") as f:
+                content = f.read()
+            m = re.search(r'VERSION_ID="?(\d+\.\d+)"?', content)
+            if m:
+                ver = m.group(1)
+                specific_label = f"ubuntu-{ver}" + ("-arm" if arch == "arm64" else "")
+        if not specific_label:
+            specific_label = "ubuntu-24.04" + ("-arm" if arch == "arm64" else "")
+
+    elif sys_name == "darwin":
+        os_family = "macos"
+        try:
+            ver_out = subprocess.check_output(["sw_vers", "-productVersion"]).decode().strip()
+            major = ver_out.split(".")[0]
+            if arch == "x64":
+                specific_label = f"macos-{major}-intel"
+            else:
+                specific_label = f"macos-{major}"
+        except Exception:
+            specific_label = "macos-15" if arch == "arm64" else "macos-15-intel"
+
+    elif sys_name == "windows":
+        os_family = "windows"
+        if arch == "arm64":
+            specific_label = "windows-11-arm"
+        else:
+            specific_label = "windows-2025"
+
+    return {
+        "os_family": os_family,
+        "arch": arch,
+        "specific_label": specific_label,
+    }
+
+
+def find_release_metadata(repo, version, token=None):
+    """Retrieve release info and manifest from GitHub API or direct download."""
+    ctx = create_ssl_context()
+    headers = {"User-Agent": "python-openssl-installer", "Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+
+    if version == "latest":
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+    else:
+        tag = version if version.startswith("v") else f"v{version}"
+        url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=ctx) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Warning: Failed to fetch release details from {url}: {e}", file=sys.stderr)
+        return None
+
+
+def extract_archive(archive_path, dest_dir):
+    """Extract .tar.xz or .zip archive to destination directory."""
+    print(f"Extracting {archive_path} into {dest_dir}...", flush=True)
+    os.makedirs(dest_dir, exist_ok=True)
+    if archive_path.endswith(".zip"):
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            zf.extractall(dest_dir)
+    else:
+        # tar.xz or tar.gz
+        with tarfile.open(archive_path, "r:*") as tf:
+            tf.extractall(dest_dir)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Install pre-compiled Python and OpenSSL.")
+    parser.add_argument("--repo", default=os.environ.get("GITHUB_ACTION_REPOSITORY", "gam-team/python-openssl-latest"),
+                        help="GitHub repository containing the releases")
+    parser.add_argument("--version", default="latest", help="Version tag or 'latest'")
+    parser.add_argument("--install-dir", help="Target installation directory")
+    parser.add_argument("--token", default=os.environ.get("GITHUB_TOKEN"), help="GitHub token for API access")
+    parser.add_argument("--set-env", action="store_true", default=True, help="Set GITHUB_PATH and GITHUB_ENV")
+    args = parser.parse_args()
+
+    runner = detect_runner_info()
+    print(f"Detected Runner Environment: {runner['os_family']} | Arch: {runner['arch']} | Label: {runner['specific_label']}")
+
+    # Determine default install directory
+    tool_cache = os.environ.get("RUNNER_TOOL_CACHE") or os.environ.get("RUNNER_TEMP") or "/tmp"
+    install_dir = args.install_dir or os.path.join(tool_cache, "python-openssl-bundle")
+
+    # Fetch release
+    rel_info = find_release_metadata(args.repo, args.version, args.token)
+    if not rel_info or "assets" not in rel_info:
+        raise RuntimeError(f"Could not locate GitHub release for '{args.version}' in repository '{args.repo}'")
+
+    assets = rel_info.get("assets", [])
+    print(f"Found release '{rel_info.get('tag_name')}' with {len(assets)} assets.")
+
+    # Match matching asset:
+    # 1. Exact match with runner['specific_label'] and arch
+    # 2. Family match with runner['os_family'] and arch
+    selected_asset = None
+    target_label = runner["specific_label"]
+    target_arch = runner["arch"]
+    target_family = runner["os_family"]
+
+    for asset in assets:
+        name = asset["name"]
+        if target_arch in name and target_label in name:
+            selected_asset = asset
+            break
+
+    if not selected_asset:
+        for asset in assets:
+            name = asset["name"]
+            if target_arch in name and target_family in name:
+                selected_asset = asset
+                break
+
+    if not selected_asset:
+        # Fallback: check any asset with target_arch and standard extensions
+        for asset in assets:
+            name = asset["name"]
+            if target_arch in name and (name.endswith(".tar.xz") or name.endswith(".zip")):
+                selected_asset = asset
+                break
+
+    if not selected_asset:
+        raise RuntimeError(f"No compatible binary package found for {target_label} ({target_arch}) in release assets.")
+
+    print(f"Selected asset: {selected_asset['name']}")
+
+    # Download asset
+    download_dir = os.environ.get("RUNNER_TEMP", "/tmp")
+    archive_path = os.path.join(download_dir, selected_asset["name"])
+    download_url = selected_asset["browser_download_url"]
+    download_file(download_url, archive_path, args.token)
+
+    # Extract
+    if os.path.exists(install_dir):
+        shutil.rmtree(install_dir)
+    extract_archive(archive_path, install_dir)
+
+    # Locate Python binary and OpenSSL directory inside extracted bundle
+    py_bin = None
+    py_root = os.path.join(install_dir, "python")
+    ssl_root = os.path.join(install_dir, "ssl")
+
+    if not os.path.exists(py_root):
+        py_root = install_dir
+    if not os.path.exists(ssl_root):
+        ssl_root = install_dir
+
+    if runner["os_family"] == "windows":
+        for cand in [os.path.join(py_root, "python.exe"), os.path.join(install_dir, "python.exe")]:
+            if os.path.isfile(cand):
+                py_bin = cand
+                py_root = os.path.dirname(cand)
+                break
+        py_bin_dir = py_root
+    else:
+        for cand in [os.path.join(py_root, "bin", "python3"), os.path.join(install_dir, "bin", "python3")]:
+            if os.path.isfile(cand):
+                py_bin = cand
+                py_bin_dir = os.path.dirname(cand)
+                break
+
+    if not py_bin or not os.path.exists(py_bin):
+        raise RuntimeError(f"Could not find Python executable in {install_dir}")
+
+    print(f"Installed Python: {py_bin}")
+    print(f"Installed OpenSSL root: {ssl_root}")
+
+    # Set GITHUB_PATH & GITHUB_ENV
+    if args.set_env:
+        github_path = os.environ.get("GITHUB_PATH")
+        if github_path:
+            with open(github_path, "a", encoding="utf-8") as f:
+                f.write(f"{py_bin_dir}\n")
+                if os.path.exists(os.path.join(ssl_root, "bin")):
+                    f.write(f"{os.path.join(ssl_root, 'bin')}\n")
+
+        github_env = os.environ.get("GITHUB_ENV")
+        if github_env:
+            with open(github_env, "a", encoding="utf-8") as f:
+                f.write(f"PYTHON={py_bin}\n")
+                f.write(f"OPENSSL_INSTALL_PATH={ssl_root}\n")
+                if runner["os_family"] == "linux":
+                    lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
+                    f.write(f"LD_LIBRARY_PATH={lib_paths}:${{LD_LIBRARY_PATH:-}}\n")
+                elif runner["os_family"] == "macos":
+                    lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
+                    f.write(f"DYLD_LIBRARY_PATH={lib_paths}:${{DYLD_LIBRARY_PATH:-}}\n")
+
+    # Verify python and openssl
+    print("\nVerifying installed bundle:")
+    sys.stdout.flush()
+    subprocess.check_call([py_bin, "-VV"])
+    ver_cmd = [py_bin, "-c", "import ssl; print(f'Using OpenSSL: {ssl.OPENSSL_VERSION}')"]
+    subprocess.check_call(ver_cmd)
+
+    # Set GITHUB_OUTPUT
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        py_ver_out = subprocess.check_output([py_bin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"]).decode().strip()
+        ssl_ver_out = subprocess.check_output([py_bin, "-c", "import ssl; print(ssl.OPENSSL_VERSION)"]).decode().strip()
+        with open(github_output, "a", encoding="utf-8") as f:
+            f.write(f"python-path={py_bin}\n")
+            f.write(f"python-version={py_ver_out}\n")
+            f.write(f"openssl-path={ssl_root}\n")
+            f.write(f"openssl-version={ssl_ver_out}\n")
+
+    print("\nSetup completed successfully!")
+
+
+if __name__ == "__main__":
+    main()
