@@ -121,6 +121,7 @@ In GAM's `.github/workflows/build.yml`, consuming this reusable action replaces:
 
 ### 1. Matrix and Version Discovery (`scripts/discover_matrix.py`)
 - Fetches the active runner list from `https://api.github.com/repos/actions/runner-images/readme`.
+- **Free Runner Enforcement**: Detects and excludes paid GitHub Actions Larger Runners (`-large`, `-xlarge` labels). For open-source public repositories, builds strictly use standard free-tier runners (e.g. `macos-15`, `macos-15-intel`, `ubuntu-24.04`, `windows-2025`).
 - Identifies all Ubuntu, macOS, and Windows runners across `x64` and `arm64`.
 - Checks for deprecation badges linking to issues in `actions/runner-images`.
 - Extracts brownout schedules from the deprecation issues.
