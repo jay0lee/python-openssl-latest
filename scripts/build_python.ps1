@@ -48,6 +48,18 @@ if ($pyMajor -eq "3" -and $pyMinor -eq "14" -and [int]$osslMajor -ge 4) {
     if (Test-Path $patchFile) {
         Write-Host "Applying Python 3.14 + OpenSSL 4 compatibility patch: $patchFile"
         git apply --ignore-space-change --ignore-whitespace $patchFile
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "git apply returned $LASTEXITCODE. Trying git patch / patch.exe..."
+            $gitPatch = "C:\Program Files\Git\usr\bin\patch.exe"
+            if (Test-Path $gitPatch) {
+                & $gitPatch -p1 -N -i $patchFile
+            }
+        }
+        $sslSource = Get-Content "Modules\_ssl.c" -Raw
+        if ($sslSource -notmatch "OPENSSL_NO_SSL3_METHOD") {
+            throw "Failed to apply Python 3.14 + OpenSSL 4 compatibility patch to Modules\_ssl.c"
+        }
+        Write-Host "Patch verified successfully in Modules\_ssl.c"
     }
 }
 

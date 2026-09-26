@@ -5,7 +5,7 @@ index 1235eff72f7..f68e34b7560 100644
 @@ -134,6 +134,17 @@ static void _PySSLFixErrno(void) {
  #error Unsupported OpenSSL version
  #endif
-
+ 
 +#if (OPENSSL_VERSION_NUMBER >= 0x40000000L)
 +#  define OPENSSL_NO_SSL3
 +#  define OPENSSL_NO_TLS1
@@ -21,7 +21,7 @@ index 1235eff72f7..f68e34b7560 100644
  #ifndef OPENSSL_NO_SSL3_METHOD
  extern const SSL_METHOD *SSLv3_method(void);
 @@ -1133,7 +1144,7 @@ _asn1obj2py(_sslmodulestate *state, const ASN1_OBJECT *name, int no_name)
-
+ 
  static PyObject *
  _create_tuple_for_attribute(_sslmodulestate *state,
 -                            ASN1_OBJECT *name, ASN1_STRING *value)
@@ -31,7 +31,7 @@ index 1235eff72f7..f68e34b7560 100644
      PyObject *pyattr;
 @@ -1162,16 +1173,16 @@ _create_tuple_for_attribute(_sslmodulestate *state,
  }
-
+ 
  static PyObject *
 -_create_tuple_for_X509_NAME (_sslmodulestate *state, X509_NAME *xname)
 +_create_tuple_for_X509_NAME (_sslmodulestate *state, const X509_NAME *xname)
@@ -63,5 +63,5 @@ index 1235eff72f7..f68e34b7560 100644
 +#ifndef OPENSSL_NO_TLS1_2
      ADD_INT_CONST("PROTOCOL_TLSv1_2", PY_SSL_VERSION_TLS1_2);
 +#endif
-
+ 
  #define ADD_OPTION(NAME, VALUE) if (sslmodule_add_option(m, NAME, (VALUE)) < 0) return -1
