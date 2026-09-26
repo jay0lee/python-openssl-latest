@@ -128,4 +128,7 @@ Write-Host "Verifying Python and OpenSSL installation:"
 $installedPy = Join-Path $InstallDir "python.exe"
 & $installedPy -VV
 & $installedPy -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
+Write-Host "Running GAM / GYB Validation Suite..."
+$valScript = Join-Path $repoRoot "scripts\validate_runtime.py"
+& $installedPy $valScript
 Write-Host "=================================================="

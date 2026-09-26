@@ -33,3 +33,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 scripts/discover_matrix.py --output-json
+
+  test-reusable-action-e2e:
+    name: 'E2E Test: Install & Validate (${{ matrix.os }})'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Python + OpenSSL via Reusable Action
+        uses: ./
+        with:
+          version: 'latest'
+
+      - name: Run GAM / GYB Validation Suite
+        shell: bash
+        run: |
+          "$PYTHON" scripts/validate_runtime.py

@@ -117,4 +117,6 @@ echo "=================================================="
 echo "Verifying Python and OpenSSL Installation:"
 "${INSTALL_DIR}/bin/python3" -VV
 "${INSTALL_DIR}/bin/python3" -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
+echo "Running GAM / GYB Validation Suite..."
+"${INSTALL_DIR}/bin/python3" "${REPO_ROOT}/scripts/validate_runtime.py"
 echo "=================================================="
