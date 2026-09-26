@@ -80,6 +80,26 @@ def log_test_result(name, duration, details=None):
             print(f"    {c.dim('•')} {k}: {c.bold(v)}")
 
 
+def get_ssl_context():
+    """Create SSL context with fallback to standard system CA bundles."""
+    ctx = ssl.create_default_context()
+    system_ca_bundles = [
+        os.environ.get("SSL_CERT_FILE"),
+        "/etc/ssl/cert.pem",                          # macOS / BSD
+        "/etc/ssl/certs/ca-certificates.crt",         # Ubuntu / Debian
+        "/etc/pki/tls/certs/ca-bundle.crt",           # RHEL / Fedora
+        "/etc/ssl/ca-bundle.pem",                     # OpenSUSE
+    ]
+    for ca_path in system_ca_bundles:
+        if ca_path and os.path.isfile(ca_path):
+            try:
+                ctx.load_verify_locations(cafile=ca_path)
+                break
+            except Exception:
+                pass
+    return ctx
+
+
 def test_openssl_and_tls(target_host="www.googleapis.com", expected_ossl_prefix=None):
     """1. Test OpenSSL version and HTTPS/TLS connection to Google APIs."""
     log_test_header("OpenSSL & HTTPS Connectivity (Google APIs)")
@@ -99,11 +119,10 @@ def test_openssl_and_tls(target_host="www.googleapis.com", expected_ossl_prefix=
         headers={"User-Agent": "python-openssl-validator/1.0"}
     )
 
-    ctx = ssl.create_default_context()
+    ctx = get_ssl_context()
     with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
         status_code = resp.getcode()
         body = resp.read()
-        cipher = resp.version  # or cipher info from socket
 
     assert status_code == 200, f"Expected HTTP 200, got {status_code}"
     assert len(body) > 1000, "Response body unexpectedly short"

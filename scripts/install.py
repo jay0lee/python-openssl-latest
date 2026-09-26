@@ -274,6 +274,22 @@ def main():
                     lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
                     f.write(f"DYLD_LIBRARY_PATH={lib_paths}:${{DYLD_LIBRARY_PATH:-}}\n")
 
+                # Detect system CA certificate bundle
+                system_ca = None
+                for ca in ["/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/ca-bundle.pem"]:
+                    if os.path.isfile(ca):
+                        system_ca = ca
+                        break
+                if system_ca:
+                    f.write(f"SSL_CERT_FILE={system_ca}\n")
+                    os.makedirs(os.path.join(ssl_root, "ssl"), exist_ok=True)
+                    for dest in [os.path.join(ssl_root, "cert.pem"), os.path.join(ssl_root, "ssl", "cert.pem")]:
+                        if not os.path.exists(dest):
+                            try:
+                                os.symlink(system_ca, dest)
+                            except Exception:
+                                pass
+
     # Ensure macOS relocatability via install_name_tool if needed
     if runner["os_family"] == "macos" and shutil.which("install_name_tool"):
         lib_dir = os.path.join(py_root, "lib")
@@ -301,6 +317,8 @@ def main():
     elif runner["os_family"] == "macos":
         lib_paths = f"{os.path.join(py_root, 'lib')}:{os.path.join(ssl_root, 'lib')}:/usr/local/lib"
         run_env["DYLD_LIBRARY_PATH"] = f"{lib_paths}:{run_env.get('DYLD_LIBRARY_PATH', '')}"
+    if system_ca:
+        run_env["SSL_CERT_FILE"] = system_ca
 
     # Verify python and openssl
     print("\nVerifying installed bundle:")
