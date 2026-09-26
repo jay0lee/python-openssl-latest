@@ -234,11 +234,13 @@ def parse_brownout_from_issue(issue_body, reference_year=None):
     return None, None
 
 
-def parse_available_runners_from_readme(readme_content, token=None, current_date=None):
+def parse_available_runners_from_readme(readme_content, token=None, current_date=None, free_only=True):
     """
     Parses actions/runner-images README table of Available Images.
-    Resolves deprecations via linked issues.
-    Filters out any runner if current_date >= cutoff_date (where cutoff = first_brownout - 1 day).
+    Resolves deprecations via linked issues and detects paid Larger Runners (-large, -xlarge).
+    Filters out any runner if:
+      - free_only is True and the runner is a paid Larger Runner
+      - current_date >= cutoff_date (where cutoff = first_brownout - 1 day).
     """
     if current_date is None:
         current_date = datetime.now(timezone.utc).date()
@@ -283,13 +285,27 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
         if not labels:
             continue
 
-        canonical_label = None
-        for lbl in labels:
-            if "-latest" not in lbl and "-xlarge" not in lbl and not lbl.endswith("-large"):
-                canonical_label = lbl
-                break
-        if not canonical_label:
-            canonical_label = labels[0]
+        # Distinguish free standard labels from paid Larger Runner labels (-large, -xlarge)
+        free_labels = [lbl for lbl in labels if not lbl.endswith("-large") and "-large-" not in lbl and "-xlarge" not in lbl]
+        paid_labels = [lbl for lbl in labels if lbl not in free_labels]
+
+        # If an image only has -large or -xlarge labels (e.g. Intel macOS 14), it is a paid-only larger runner
+        is_paid = (len(free_labels) == 0)
+
+        if is_paid:
+            canonical_label = paid_labels[0]
+        else:
+            canonical_label = None
+            for lbl in free_labels:
+                if "-latest" not in lbl:
+                    canonical_label = lbl
+                    break
+            if not canonical_label:
+                canonical_label = free_labels[0]
+
+        # Deduplicate specialized variant images (e.g. windows-11-vs2026-arm when windows-11-arm is present)
+        if "-vs2026" in canonical_label and "windows-11-arm" in labels_raw:
+            continue
 
         os_lower = canonical_label.lower()
         if "ubuntu" in os_lower:
@@ -314,6 +330,9 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
         first_brownout_str = None
         cutoff_date_str = None
 
+        if is_paid and free_only:
+            is_active = False
+
         if deprecated and deprecation_issue_id:
             issue_url = f"https://api.github.com/repos/actions/runner-images/issues/{deprecation_issue_id}"
             issue_data = github_api_get(issue_url, token)
@@ -331,6 +350,7 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
             "arch": arch,
             "name": f"{os_family.capitalize()} {arch} ({canonical_label})",
             "deprecated": deprecated,
+            "paid": is_paid,
             "first_brownout": first_brownout_str,
             "cutoff_date": cutoff_date_str,
             "active": is_active,
@@ -340,27 +360,27 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
     return runners
 
 
-def get_supported_runners(token=None, current_date=None):
+def get_supported_runners(token=None, current_date=None, free_only=True):
     """Fetch README from actions/runner-images and return active runners."""
     readme_data = github_api_get("https://api.github.com/repos/actions/runner-images/readme", token)
     if readme_data and "content" in readme_data:
         readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
-        all_runners = parse_available_runners_from_readme(readme_content, token, current_date)
+        all_runners = parse_available_runners_from_readme(readme_content, token, current_date, free_only=free_only)
     else:
         all_runners = [
-            {"os": "ubuntu-26.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-26.04)", "deprecated": False, "active": True},
-            {"os": "ubuntu-26.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-26.04-arm)", "deprecated": False, "active": True},
-            {"os": "ubuntu-24.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-24.04)", "deprecated": False, "active": True},
-            {"os": "ubuntu-24.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-24.04-arm)", "deprecated": False, "active": True},
-            {"os": "ubuntu-22.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-22.04)", "deprecated": False, "active": True},
-            {"os": "ubuntu-22.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-22.04-arm)", "deprecated": False, "active": True},
-            {"os": "macos-15", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-15)", "deprecated": False, "active": True},
-            {"os": "macos-15-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-15-intel)", "deprecated": False, "active": True},
-            {"os": "macos-26", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-26)", "deprecated": False, "active": True},
-            {"os": "macos-26-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-26-intel)", "deprecated": False, "active": True},
-            {"os": "windows-2025", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2025)", "deprecated": False, "active": True},
-            {"os": "windows-2022", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2022)", "deprecated": False, "active": True},
-            {"os": "windows-11-arm", "os_family": "windows", "arch": "arm64", "name": "Windows arm64 (windows-11-arm)", "deprecated": False, "active": True},
+            {"os": "ubuntu-26.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-26.04)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-26.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-26.04-arm)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-24.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-24.04)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-24.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-24.04-arm)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-22.04", "os_family": "linux", "arch": "x64", "name": "Linux x64 (ubuntu-22.04)", "deprecated": False, "paid": False, "active": True},
+            {"os": "ubuntu-22.04-arm", "os_family": "linux", "arch": "arm64", "name": "Linux arm64 (ubuntu-22.04-arm)", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-15", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-15)", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-15-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-15-intel)", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-26", "os_family": "macos", "arch": "arm64", "name": "Macos arm64 (macos-26)", "deprecated": False, "paid": False, "active": True},
+            {"os": "macos-26-intel", "os_family": "macos", "arch": "x64", "name": "Macos x64 (macos-26-intel)", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-2025", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2025)", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-2022", "os_family": "windows", "arch": "x64", "name": "Windows x64 (windows-2022)", "deprecated": False, "paid": False, "active": True},
+            {"os": "windows-11-arm", "os_family": "windows", "arch": "arm64", "name": "Windows arm64 (windows-11-arm)", "deprecated": False, "paid": False, "active": True},
         ]
 
     seen = set()
@@ -428,10 +448,14 @@ def print_pretty_report(current_date, py_ver, ossl_ver, release_tag, all_runners
                 details_str = f"Cutoff: {r.get('cutoff_date')}"
             else:
                 status_str = style.green("● ACTIVE")
-                details_str = style.dim("Fully Supported")
+                details_str = style.dim("Free Standard Runner")
         else:
-            status_str = style.red("✖ EXCLUDED")
-            details_str = style.red(f"Cutoff: {r.get('cutoff_date')}")
+            if r.get("paid"):
+                status_str = style.yellow("💰 PAID")
+                details_str = style.dim("Larger Runner (Excluded)")
+            else:
+                status_str = style.red("✖ EXCLUDED")
+                details_str = style.red(f"Cutoff: {r.get('cutoff_date')}")
 
         row_str = "│" + "│".join([
             " " + pad_ansi(os_label, cols[0][1], cols[0][2]) + " ",
@@ -445,8 +469,16 @@ def print_pretty_report(current_date, py_ver, ossl_ver, release_tag, all_runners
     out.write(style.dim(bot_border) + "\n\n")
 
     # 4. Summary Box
+    paid_count = sum(1 for r in all_runners if r.get("paid"))
+    brownout_count = sum(1 for r in all_runners if not r.get("active", True) and not r.get("paid"))
     excluded_count = len(all_runners) - len(active_runners)
-    stats = f"  🎯 {style.bold('Summary:')} {style.green(f'{len(active_runners)} Active Targets')} │ {style.red(f'{excluded_count} Excluded')} │ {style.dim(f'{len(all_runners)} Total Evaluated')}\n"
+
+    stats = (
+        f"  🎯 {style.bold('Summary:')} {style.green(f'{len(active_runners)} Free Active Targets')} │ "
+        f"{style.yellow(f'{paid_count} Paid Excluded')} │ "
+        f"{style.red(f'{brownout_count} Brownout Excluded')} │ "
+        f"{style.dim(f'{len(all_runners)} Total Evaluated')}\n"
+    )
     out.write(stats)
     out.write(style.dim("─" * w) + "\n\n")
     out.flush()
@@ -457,6 +489,8 @@ def write_github_step_summary(summary_file, current_date, py_ver, ossl_ver, rele
     if not summary_file:
         return
 
+    paid_count = sum(1 for r in all_runners if r.get("paid"))
+    brownout_count = sum(1 for r in all_runners if not r.get("active", True) and not r.get("paid"))
     excluded_count = len(all_runners) - len(active_runners)
 
     md = []
@@ -488,19 +522,29 @@ def write_github_step_summary(summary_file, current_date, py_ver, ossl_ver, rele
                 status = "⚠️ **Active (Deprecated)**"
                 note = f"Approaching brownouts on {brownout}"
             else:
-                status = "✅ **Active**"
-                note = "Supported (GA)"
+                status = "✅ **Active (Free)**"
+                note = "Standard Free Runner (GA)"
         else:
-            status = "🚫 **Excluded**"
-            note = f"Brownout cutoff reached on {cutoff}"
+            if r.get("paid"):
+                status = "💰 **Paid Larger Runner**"
+                note = "Excluded (Open-Source Free Tier)"
+            else:
+                status = "🚫 **Excluded (Brownout)**"
+                note = f"Brownout cutoff reached on {cutoff}"
 
         md.append(f"| {icon} | {lbl} | {arch} | {status} | {brownout} | {cutoff} | {note} |")
 
     md.append("")
-    if excluded_count > 0:
-        md.append(f"> [!WARNING]\n> **{excluded_count} runner(s)** have been excluded to protect builds against upstream deprecation brownouts.")
+    notices = []
+    if paid_count > 0:
+        notices.append(f"**{paid_count} paid Larger Runner(s)** excluded for open-source free tier")
+    if brownout_count > 0:
+        notices.append(f"**{brownout_count} deprecated runner(s)** excluded to protect against brownout failures")
+
+    if notices:
+        md.append(f"> [!WARNING]\n> {', and '.join(notices)}.")
     else:
-        md.append(f"> [!NOTE]\n> All **{len(active_runners)} evaluated runners** are currently active and supported.")
+        md.append(f"> [!NOTE]\n> All **{len(active_runners)} evaluated runners** are free standard runners and currently active.")
     md.append("")
 
     try:
@@ -516,6 +560,8 @@ def main():
     parser.add_argument("--python-version", help="Override Python version")
     parser.add_argument("--openssl-version", help="Override OpenSSL version")
     parser.add_argument("--date", help="Override current date (YYYY-MM-DD) for deprecation testing")
+    parser.add_argument("--free-only", action="store_true", default=True, help="Only include standard free runners for public/open-source projects (default: True)")
+    parser.add_argument("--allow-paid", action="store_false", dest="free_only", help="Include paid Larger Runners (e.g. -large, -xlarge)")
     parser.add_argument("--output-json", action="store_true", help="Print matrix JSON to stdout")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print the matrix JSON on stdout")
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI color output")
@@ -536,7 +582,7 @@ def main():
     release_tag = f"v{py_ver}-ossl{ossl_ver}"
 
     # 2. Determine runners
-    active_runners, all_runners = get_supported_runners(args.token, current_date)
+    active_runners, all_runners = get_supported_runners(args.token, current_date, free_only=args.free_only)
 
     # 3. Print pretty terminal report to stderr
     print_pretty_report(current_date, py_ver, ossl_ver, release_tag, all_runners, active_runners, style)

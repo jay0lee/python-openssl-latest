@@ -70,6 +70,36 @@ class TestDiscoverMatrix(unittest.TestCase):
         self.assertIn("windows-2025", labels_before)
         self.assertIn("windows-11-arm", labels_before)
 
+    def test_detect_and_exclude_paid_larger_runners(self):
+        sample_readme = """
+        ## Available Images
+
+        | Image | Architecture | YAML Label | Included Software |
+        | --------------------|--------------|---------------------|------------------|
+        | macOS 14 | x64 | `macos-14-large` | [macOS-14] |
+        | macOS 14 Arm64 | arm64 | `macos-14` or `macos-14-xlarge` | [macOS-14-arm64] |
+        | macOS 15 | x64 | `macos-15-large`, or `macos-15-intel` | [macOS-15] |
+        | macOS 15 Arm64 | arm64 | `macos-15`, or `macos-15-xlarge` | [macOS-15-arm64] |
+        """
+        # Under free_only=True (default)
+        runners = parse_available_runners_from_readme(sample_readme, free_only=True)
+        
+        # macos-14-large should be marked paid=True and active=False
+        macos14_intel = next(r for r in runners if r["os"] == "macos-14-large")
+        self.assertTrue(macos14_intel["paid"])
+        self.assertFalse(macos14_intel["active"])
+
+        # macos-14 arm64 should select free 'macos-14' and NOT 'macos-14-xlarge'
+        macos14_arm = next(r for r in runners if r["os"] == "macos-14")
+        self.assertFalse(macos14_arm["paid"])
+        self.assertTrue(macos14_arm["active"])
+
+        # macos-15 intel should select free 'macos-15-intel' and NOT 'macos-15-large'
+        macos15_intel = next(r for r in runners if r["os"] == "macos-15-intel")
+        self.assertFalse(macos15_intel["paid"])
+        self.assertTrue(macos15_intel["active"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
