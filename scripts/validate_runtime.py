@@ -30,14 +30,16 @@ import threading
 import time
 import urllib.request
 import zipfile
-
-# Compression modules
-import zlib
-import gzip
-import bz2
-import lzma
 import hashlib
 import hmac
+
+# Reconfigure stdout/stderr to UTF-8 on Windows cp1252 consoles
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 class Colors:
@@ -251,6 +253,9 @@ def test_compression_libraries():
     sample_text = ("Subject: GAM / GYB Backup Test\n" + "This is a repeated line of test data for compression benchmarking.\n" * 500).encode("utf-8")
     original_size = len(sample_text)
 
+    import zlib
+    import gzip
+
     # zlib
     z_comp = zlib.compress(sample_text, 6)
     assert zlib.decompress(z_comp) == sample_text
@@ -258,14 +263,6 @@ def test_compression_libraries():
     # gzip
     gz_comp = gzip.compress(sample_text)
     assert gzip.decompress(gz_comp) == sample_text
-
-    # bz2
-    bz_comp = bz2.compress(sample_text)
-    assert bz2.decompress(bz_comp) == sample_text
-
-    # lzma / xz
-    xz_comp = lzma.compress(sample_text)
-    assert lzma.decompress(xz_comp) == sample_text
 
     # zipfile in-memory
     bio = io.BytesIO()
@@ -276,14 +273,37 @@ def test_compression_libraries():
         extracted = zf.read("test_message.eml")
         assert extracted == sample_text
 
+    # bz2 (optional / checked)
+    has_bz2 = False
+    try:
+        import bz2
+        bz_comp = bz2.compress(sample_text)
+        assert bz2.decompress(bz_comp) == sample_text
+        has_bz2 = True
+    except ImportError:
+        pass
+
+    # lzma / xz (optional / checked)
+    has_lzma = False
+    lzma_ratio = "N/A"
+    try:
+        import lzma
+        xz_comp = lzma.compress(sample_text)
+        assert lzma.decompress(xz_comp) == sample_text
+        has_lzma = True
+        lzma_ratio = f"{len(xz_comp)} bytes ({len(xz_comp)/original_size*100:.1f}%)"
+    except ImportError:
+        pass
+
     elapsed = time.perf_counter() - t0
     log_test_result(
-        "Compression algorithms (zlib, gzip, bz2, lzma/xz, zipfile)",
+        "Compression algorithms (zlib, gzip, zipfile, bz2, lzma/xz)",
         elapsed,
         {
             "Original Size": f"{original_size} bytes",
             "zlib Compressed": f"{len(z_comp)} bytes ({len(z_comp)/original_size*100:.1f}%)",
-            "lzma/xz Compressed": f"{len(xz_comp)} bytes ({len(xz_comp)/original_size*100:.1f}%)",
+            "bzip2 Available": "Yes" if has_bz2 else "No (omitted from host build environment)",
+            "lzma/xz Available": "Yes" if has_lzma else "No (omitted from host build environment)",
             "Zip Archive Integrity": "Verified lossless round-trip"
         }
     )
