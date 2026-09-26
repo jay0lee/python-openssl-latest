@@ -535,17 +535,8 @@ def write_github_step_summary(summary_file, current_date, py_ver, ossl_ver, rele
         md.append(f"| {icon} | {lbl} | {arch} | {status} | {brownout} | {cutoff} | {note} |")
 
     md.append("")
-    notices = []
-    if paid_count > 0:
-        notices.append(f"**{paid_count} paid Larger Runner(s)** excluded for open-source free tier")
     if brownout_count > 0:
-        notices.append(f"**{brownout_count} deprecated runner(s)** excluded to protect against brownout failures")
-
-    if notices:
-        md.append(f"> [!WARNING]\n> {', and '.join(notices)}.")
-    else:
-        md.append(f"> [!NOTE]\n> All **{len(active_runners)} evaluated runners** are free standard runners and currently active.")
-    md.append("")
+        md.append(f"> [!WARNING]\n> **{brownout_count} deprecated runner(s)** excluded to protect against brownout failures.\n")
 
     try:
         with open(summary_file, "a", encoding="utf-8") as f:
