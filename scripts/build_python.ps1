@@ -38,6 +38,19 @@ if (-not (Test-Path "$SourceDir\PCBuild\build.bat")) {
     Set-Location $SourceDir
 }
 
+# Apply GAM patch for Python 3.14 + OpenSSL 4.0 if needed
+$pyMajor = $PythonVersion.Split('.')[0]
+$pyMinor = $PythonVersion.Split('.')[1]
+$osslMajor = $OpenSSLVersion.Split('.')[0]
+
+if ($pyMajor -eq "3" -and $pyMinor -eq "14" -and [int]$osslMajor -ge 4) {
+    $patchFile = Join-Path $repoRoot "patches\py314-ossl4.diff"
+    if (Test-Path $patchFile) {
+        Write-Host "Applying Python 3.14 + OpenSSL 4 compatibility patch: $patchFile"
+        git apply --ignore-space-change --ignore-whitespace $patchFile
+    }
+}
+
 # 1. Fetch externals
 Write-Host "Fetching external dependencies..."
 & PCBuild\get_externals.bat
@@ -77,11 +90,25 @@ if (Test-Path $hashlibSrc) {
 
 # 4. Build Python
 Write-Host "Building Python for $buildArch..."
-& PCBuild\build.bat -c Release -p $buildArch --pgo
+if ($buildArch -eq "ARM64") {
+    & PCBuild\build.bat -c Release -p $buildArch
+} else {
+    & PCBuild\build.bat -c Release -p $buildArch --pgo
+}
+if ($LASTEXITCODE -ne 0) {
+    throw "PCBuild\build.bat failed with exit code $LASTEXITCODE"
+}
 
 # 5. Layout Python into clean installation directory
 Write-Host "Creating layout into $InstallDir..."
-& .\python.bat PC\layout --precompile --preset-default --copy $InstallDir
+if (Test-Path "PCBuild\python.bat") {
+    & PCBuild\python.bat PC\layout --precompile --preset-default --copy $InstallDir
+} elseif (Test-Path ".\python.bat") {
+    & .\python.bat PC\layout --precompile --preset-default --copy $InstallDir
+} else {
+    $pyExe = Join-Path $SourceDir "PCbuild\$osslSub\python.exe"
+    & $pyExe PC\layout --precompile --preset-default --copy $InstallDir
+}
 
 # 6. Verify Python and OpenSSL
 Write-Host "=================================================="
