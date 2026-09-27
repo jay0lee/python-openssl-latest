@@ -20,18 +20,50 @@ if (-not (Test-Path $vcvars)) {
     throw "vcvarsall.bat not found at $vcvars"
 }
 
+# Locate Visual Studio's modern MSBuild
+$msBuildExe = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+if (-not (Test-Path $msBuildExe)) {
+    $found = Get-ChildItem -Path "$vsPath\MSBuild" -Filter "MSBuild.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $msBuildExe = $found.FullName }
+}
+
+if (Test-Path $msBuildExe) {
+    Write-Host "Configured MSBuild: $msBuildExe"
+    [System.Environment]::SetEnvironmentVariable("MSBUILD", $msBuildExe)
+    if ($env:GITHUB_ENV) {
+        "MSBUILD<<__MSVC_ENV_EOF__`n$msBuildExe`n__MSVC_ENV_EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+    }
+}
+
 $targetArch = if ($Arch -ieq "arm64") { "arm64" } else { "x64" }
 Write-Host "Activating MSVC ($targetArch) via $vcvars..."
 
+$origPath = $env:PATH -split ";"
 $envOutput = cmd /c "`"$vcvars`" $targetArch && set"
 foreach ($line in $envOutput) {
     if ($line -match "^([^=]+)=(.*)$") {
         $k = $matches[1]
         $v = $matches[2]
         if ($k -ieq "PATH") {
-            if ($env:GITHUB_PATH) {
-                $v.Split(";") | Where-Object { $_ -and (Test-Path $_) } | ForEach-Object {
-                    $_ | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            [System.Environment]::SetEnvironmentVariable("PATH", $v)
+            if ($env:GITHUB_ENV) {
+                "Path<<__MSVC_ENV_EOF__`n$v`n__MSVC_ENV_EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            # Extract only the newly added directories from vcvarsall
+            $newDirs = @()
+            if ($msBuildExe -and (Test-Path (Split-Path -Parent $msBuildExe))) {
+                $newDirs += (Split-Path -Parent $msBuildExe)
+            }
+            foreach ($dir in ($v -split ";")) {
+                if ($dir -and ($origPath -notcontains $dir) -and ($newDirs -notcontains $dir) -and (Test-Path $dir)) {
+                    $newDirs += $dir
+                }
+            }
+            # Prepend to GITHUB_PATH in reverse order so GitHub Actions prepends them in original order
+            [Array]::Reverse($newDirs)
+            foreach ($dir in $newDirs) {
+                if ($env:GITHUB_PATH) {
+                    $dir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
                 }
             }
         } else {

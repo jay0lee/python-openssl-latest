@@ -101,6 +101,26 @@ if (Test-Path $hashlibSrc) {
 }
 
 # 4. Build Python
+# Ensure Visual Studio modern MSBuild is prioritized over .NET Framework MSBuild
+if (-not $env:MSBUILD -or -not (Test-Path $env:MSBUILD)) {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) {
+        $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+    if (Test-Path $vswhere) {
+        $vsPath = (& $vswhere -latest -products * -property installationPath).Trim()
+        $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+        if (Test-Path $candidate) {
+            $env:MSBUILD = $candidate
+        }
+    }
+}
+if ($env:MSBUILD -and (Test-Path $env:MSBUILD)) {
+    Write-Host "Using MSBuild: $env:MSBUILD"
+    $msbDir = Split-Path -Parent $env:MSBUILD
+    $env:PATH = "$msbDir;$env:PATH"
+}
+
 Write-Host "Building Python for $buildArch..."
 if ($buildArch -eq "ARM64") {
     & PCBuild\build.bat -c Release -p $buildArch
