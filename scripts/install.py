@@ -267,6 +267,30 @@ def main():
                         except Exception:
                             pass
 
+        # Also sanitize _sysconfigdata, _sysconfig_vars, and Makefile to remove any -Wl,-rpath flags
+        # so C extensions built via pip (like pyscard in GAM) don't inherit invalid/duplicate RPATHs for staticx
+        for root, _, files in os.walk(install_dir):
+            for fname in files:
+                if (fname.startswith("_sysconfigdata") and fname.endswith(".py")) or \
+                   (fname.startswith("_sysconfig_vars") and fname.endswith(".json")) or \
+                   fname == "Makefile":
+                    fpath = os.path.join(root, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        cleaned = re.sub(r"-Wl,-rpath,('[^']*'|\S+)", "", content)
+                        cleaned = re.sub(r"  +", " ", cleaned)
+                        with open(fpath, "w", encoding="utf-8") as f:
+                            f.write(cleaned)
+                    except Exception as e:
+                        print(f"Warning: Failed to sanitize {fpath}: {e}", file=sys.stderr)
+                elif fname.startswith("_sysconfigdata") and fname.endswith(".pyc"):
+                    try:
+                        os.remove(os.path.join(root, fname))
+                    except Exception:
+                        pass
+
+
     # Locate Python binary and OpenSSL directory inside extracted bundle
     py_bin = None
     py_root = os.path.join(install_dir, "python")
