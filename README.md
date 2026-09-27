@@ -15,7 +15,7 @@ The compilation flags and build methodology are modeled directly on [GAM](https:
 - **GAM-Hardened Build Specs**:
   - OpenSSL compiled with `no-shared -fPIC`, modern API target (`--api=3.0.0`), and deprecated insecure protocols disabled (`no-tls1`, `no-tls1_1`, `no-weak-ssl-ciphers`, `no-rc4`, etc.).
   - Python compiled with `--enable-optimizations`, `--with-lto`, `--enable-shared`, and relocatable RPATHs.
-  - Windows builds include Visual Studio MSVC PGO optimizations and custom OpenSSL project definitions (`openssl.props`, `_hashlib.vcxproj`).
+  - Windows builds include Visual Studio MSVC PGO optimizations and native OpenSSL MSBuild property injection via `ExternalProps`.
   - Includes compatibility patches for forward-looking Python / OpenSSL combinations (such as Python 3.14 + OpenSSL 4.0).
 - **Release Manifest & Fast Discovery**: Releases include `.tar.xz` / `.zip` packages, SHA256 checksums, and a machine-readable `manifest.json` for discovery.
 
@@ -155,9 +155,8 @@ In GAM's `.github/workflows/build.yml`, consuming this reusable action replaces:
   make altinstall && make bininstall
   ```
 - **Python (Windows)**:
-  - Fetches externals via `PCBuild\get_externals.bat`.
-  - Replaces external OpenSSL binaries/headers with the locally compiled hardened OpenSSL.
-  - Applies custom `openssl.props` and `_hashlib.vcxproj`.
+  - Fetches externals excluding OpenSSL via `PCBuild\get_externals.bat --no-openssl`.
+  - Configures MSBuild to use the locally compiled hardened OpenSSL via native `ExternalProps` hook (`patches\windows\openssl.props`).
   - Compiles with Profile Guided Optimization (`PCBuild\build.bat -c Release -p <arch> --pgo`).
   - Layouts clean distribution with `.\python.bat PC\layout --precompile --preset-default --copy <dest>`.
 
@@ -208,8 +207,7 @@ python3 scripts/discover_matrix.py --date 2026-10-05 --output-json
 ├── patches/
 │   ├── py314-ossl4.diff            # Python 3.14 + OpenSSL 4.0 compatibility patch
 │   └── windows/
-│       ├── openssl.props           # MSBuild properties for OpenSSL linking
-│       └── _hashlib.vcxproj        # Visual Studio project file for _hashlib
+│       └── openssl.props           # MSBuild properties for OpenSSL linking via ExternalProps
 ├── scripts/
 │   ├── discover_matrix.py          # Dynamic matrix and version discovery
 │   ├── build_openssl.sh            # Unix OpenSSL build script

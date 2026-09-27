@@ -63,14 +63,14 @@ if ($pyMajor -eq "3" -and $pyMinor -eq "14" -and [int]$osslMajor -ge 4) {
     }
 }
 
-# 1. Fetch externals
-Write-Host "Fetching external dependencies..."
-& PCBuild\get_externals.bat
+# 1. Fetch externals excluding OpenSSL (we provide our own freshly built OpenSSL)
+Write-Host "Fetching external dependencies (excluding OpenSSL)..."
+& PCBuild\get_externals.bat --no-openssl
+if ($LASTEXITCODE -ne 0) {
+    throw "PCBuild\get_externals.bat failed with exit code $LASTEXITCODE"
+}
 
-# 2. Overwrite external OpenSSL with our locally compiled OpenSSL
-$osslExtParent = (Get-Item externals\openssl-bin-* | Select-Object -First 1).FullName
-Write-Host "External OpenSSL location: $osslExtParent"
-
+# Determine architecture strings
 if ($Arch -eq "arm64" -or $Arch -eq "ARM64") {
     $osslSub = "arm64"
     $buildArch = "ARM64"
@@ -79,26 +79,34 @@ if ($Arch -eq "arm64" -or $Arch -eq "ARM64") {
     $buildArch = "x64"
 }
 
-$targetExtDir = Join-Path $osslExtParent $osslSub
-Write-Host "Injecting custom OpenSSL into $targetExtDir"
-New-Item -ItemType Directory -Force -Path (Join-Path $targetExtDir "include\openssl") | Out-Null
+# 2. Configure MSBuild to point at our custom OpenSSL via CPython's native ExternalProps hook
+$resolvedOpenSSL = (Resolve-Path $OpenSSLInstallDir).Path
+$propsSrc = (Resolve-Path (Join-Path $repoRoot "patches\windows\openssl.props")).Path
 
-Copy-Item -Path "$OpenSSLInstallDir\lib\*" -Destination $targetExtDir -Force
-Copy-Item -Path "$OpenSSLInstallDir\bin\*" -Destination $targetExtDir -Force
-Copy-Item -Path "$OpenSSLInstallDir\include\openssl\*" -Destination (Join-Path $targetExtDir "include\openssl") -Recurse -Force
-if (Test-Path "$OpenSSLInstallDir\include\openssl\applink.c") {
-    Copy-Item -Path "$OpenSSLInstallDir\include\openssl\applink.c" -Destination (Join-Path $targetExtDir "include") -Force
+# Ensure applink.c is available in include root if code uses #include <applink.c>
+if (Test-Path "$resolvedOpenSSL\include\openssl\applink.c") {
+    Copy-Item -Path "$resolvedOpenSSL\include\openssl\applink.c" -Destination "$resolvedOpenSSL\include\applink.c" -Force -ErrorAction SilentlyContinue
 }
 
-# 3. Apply custom openssl.props and _hashlib.vcxproj from patches
-$propsSrc = Join-Path $repoRoot "patches\windows\openssl.props"
-$hashlibSrc = Join-Path $repoRoot "patches\windows\_hashlib.vcxproj"
-if (Test-Path $propsSrc) {
-    Copy-Item -Path $propsSrc -Destination "PCBuild\" -Force -Verbose
+# Export environment variables for MSBuild
+$env:OpenSSLInstallDir = $resolvedOpenSSL
+$env:ExternalProps = $propsSrc
+
+# Configure MSBuild response file PCbuild\msbuild.rsp so all MSBuild invocations (including nested/PGO) inherit these properties
+$rspLines = @(
+    "/p:ExternalProps=`"$propsSrc`"",
+    "/p:OpenSSLInstallDir=`"$resolvedOpenSSL`""
+)
+
+# If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
+$hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
+if (-not $hasDlls) {
+    $env:SkipCopySSLDLL = "true"
+    $rspLines += "/p:SkipCopySSLDLL=true"
 }
-if (Test-Path $hashlibSrc) {
-    Copy-Item -Path $hashlibSrc -Destination "PCBuild\" -Force -Verbose
-}
+
+Set-Content -Path "PCbuild\msbuild.rsp" -Value $rspLines -Encoding ASCII
+Write-Host "Configured MSBuild response file PCbuild\msbuild.rsp with ExternalProps: $propsSrc"
 
 # 4. Build Python
 # Ensure Visual Studio modern MSBuild is prioritized over .NET Framework MSBuild

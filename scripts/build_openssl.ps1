@@ -83,5 +83,10 @@ Write-Host "Compiling OpenSSL with nmake..."
 Write-Host "Installing OpenSSL software headers and libraries..."
 & nmake install_sw
 
+# Ensure applink.c is available at both include\openssl\applink.c and include\applink.c
+if (Test-Path "$InstallDir\include\openssl\applink.c") {
+    Copy-Item -Path "$InstallDir\include\openssl\applink.c" -Destination "$InstallDir\include\applink.c" -Force
+}
+
 Write-Host "OpenSSL build completed."
 & "$InstallDir\bin\openssl.exe" version -a

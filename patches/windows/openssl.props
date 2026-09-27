@@ -1,24 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <!-- Point CPython MSBuild directly to our freshly compiled OpenSSL installation -->
+    <opensslDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\</opensslDir>
+    <opensslIncludeDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\include</opensslIncludeDir>
+    <opensslOutDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\lib</opensslOutDir>
+    <!-- Skip copying runtime DLLs for static (no-shared) OpenSSL builds -->
+    <SkipCopySSLDLL Condition="$(SkipCopySSLDLL) == ''">true</SkipCopySSLDLL>
+  </PropertyGroup>
+
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(opensslIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(ProjectName)' == '_ssl' or '$(ProjectName)' == '_hashlib'">$(opensslIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalLibraryDirectories>$(opensslOutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>ws2_32.lib;libcrypto.lib;libssl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories Condition="'$(ProjectName)' == '_ssl' or '$(ProjectName)' == '_hashlib'">$(opensslOutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <!-- Static libcrypto on Windows requires Windows socket, crypto, and security libraries -->
+      <AdditionalDependencies Condition="'$(ProjectName)' == '_ssl' or '$(ProjectName)' == '_hashlib'">ws2_32.lib;crypt32.lib;advapi32.lib;user32.lib;libcrypto.lib;libssl.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <PropertyGroup>
-    <_DLLSuffix>-3</_DLLSuffix>
-    <_DLLSuffix Condition="$(Platform) == 'ARM'">$(_DLLSuffix)-arm</_DLLSuffix>
-    <_DLLSuffix Condition="$(Platform) == 'ARM64'">$(_DLLSuffix)-arm64</_DLLSuffix>
-    <_DLLSuffix Condition="$(Platform) == 'x64'">$(_DLLSuffix)-x64</_DLLSuffix>
-  </PropertyGroup>
-  <Target Name="_CopySSLDLL" Inputs="@(_SSLDLL)" Outputs="@(_SSLDLL->'$(OutDir)%(Filename)%(Extension)')" AfterTargets="Build">
-    <Copy SourceFiles="@(_SSLDLL)" DestinationFolder="$(OutDir)" />
-  </Target>
-  <Target Name="_CleanSSLDLL" BeforeTargets="Clean">
-    <Delete Files="@(_SSLDLL->'$(OutDir)%(Filename)%(Extension)')" TreatErrorsAsWarnings="true" />
-  </Target>
 </Project>
