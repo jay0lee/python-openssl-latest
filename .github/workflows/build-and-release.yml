@@ -35,7 +35,7 @@ permissions:
 jobs:
   discover:
     name: 'Discover Runners and Versions'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.discovery.outputs.matrix }}
       python_version: ${{ steps.discovery.outputs.python_version }}
@@ -105,16 +105,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      # Windows MSVC environment setup
+      # Windows MSVC environment setup (native, zero Node warnings)
       - name: Setup MSVC developer command prompt (Windows)
         if: matrix.os_family == 'windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.arch }}
+        shell: powershell
+        run: |
+          .\scripts\setup_msvc.ps1 -Arch ${{ matrix.arch }}
 
       - name: Setup NASM (Windows x64)
         if: matrix.os_family == 'windows' && matrix.arch == 'x64'
-        uses: ilammy/setup-nasm@v1
+        shell: powershell
+        run: |
+          choco install nasm -y --no-progress
+          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # Linux dependencies setup
       - name: Install Linux build dependencies
@@ -239,7 +242,7 @@ jobs:
   publish:
     name: 'Publish GitHub Release'
     needs: [discover, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     permissions:
       contents: write
     steps:

@@ -10,7 +10,7 @@ on:
 jobs:
   unit-tests:
     name: 'Unit Tests (Matrix & Deprecation Discovery)'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -22,7 +22,7 @@ jobs:
 
   test-discovery-dry-run:
     name: 'Discovery Dry Run'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
