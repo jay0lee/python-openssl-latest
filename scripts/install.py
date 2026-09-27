@@ -64,7 +64,11 @@ def detect_runner_info():
     sys_name = platform.system().lower()
     machine = platform.machine().lower()
 
-    if "arm" in machine or "aarch64" in machine:
+    env_os = os.environ.get("RUNNER_OS", "").lower()
+    env_arch = os.environ.get("RUNNER_ARCH", "").lower()
+    image_os = os.environ.get("ImageOS", "").lower()
+
+    if env_arch in ("arm64", "aarch64") or "arm" in machine or "aarch64" in machine:
         arch = "arm64"
     else:
         arch = "x64"
@@ -72,19 +76,7 @@ def detect_runner_info():
     os_family = "linux"
     specific_label = None
 
-    if sys_name == "linux":
-        os_family = "linux"
-        if os.path.exists("/etc/os-release"):
-            with open("/etc/os-release") as f:
-                content = f.read()
-            m = re.search(r'VERSION_ID="?(\d+\.\d+)"?', content)
-            if m:
-                ver = m.group(1)
-                specific_label = f"ubuntu-{ver}" + ("-arm" if arch == "arm64" else "")
-        if not specific_label:
-            specific_label = "ubuntu-24.04" + ("-arm" if arch == "arm64" else "")
-
-    elif sys_name == "darwin":
+    if env_os == "macos" or sys_name == "darwin":
         os_family = "macos"
         try:
             ver_out = subprocess.check_output(["sw_vers", "-productVersion"]).decode().strip()
@@ -96,12 +88,29 @@ def detect_runner_info():
         except Exception:
             specific_label = "macos-15" if arch == "arm64" else "macos-15-intel"
 
-    elif sys_name == "windows":
+    elif env_os == "windows" or sys_name == "windows":
         os_family = "windows"
         if arch == "arm64":
             specific_label = "windows-11-arm"
+        elif "2022" in image_os or "win22" in image_os:
+            specific_label = "windows-2022"
         else:
             specific_label = "windows-2025"
+
+    else:
+        os_family = "linux"
+        if os.path.exists("/etc/os-release"):
+            with open("/etc/os-release") as f:
+                content = f.read()
+            m = re.search(r'VERSION_ID="?(\d+\.\d+)"?', content)
+            if m:
+                ver = m.group(1)
+                specific_label = f"ubuntu-{ver}" + ("-arm" if arch == "arm64" else "")
+        if not specific_label:
+            if "22" in image_os:
+                specific_label = "ubuntu-22.04" + ("-arm" if arch == "arm64" else "")
+            else:
+                specific_label = "ubuntu-24.04" + ("-arm" if arch == "arm64" else "")
 
     return {
         "os_family": os_family,
@@ -152,7 +161,7 @@ def extract_archive(archive_path, dest_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Install pre-compiled Python and OpenSSL.")
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_ACTION_REPOSITORY", "gam-team/python-openssl-latest"),
+    parser.add_argument("--repo", default=os.environ.get("PYTHON_OPENSSL_REPOSITORY", "jay0lee/python-openssl-latest"),
                         help="GitHub repository containing the releases")
     parser.add_argument("--version", default="latest", help="Version tag or 'latest'")
     parser.add_argument("--install-dir", help="Target installation directory")
@@ -183,35 +192,42 @@ def main():
     target_arch = runner["arch"]
     target_family = runner["os_family"]
 
-    valid_extensions = (".tar.xz", ".zip", ".tar.gz")
+    valid_extensions = (".zip",) if target_family == "windows" else (".tar.xz", ".tar.gz")
     package_assets = [a for a in assets if any(a["name"].endswith(ext) for ext in valid_extensions)]
 
     t_arch = target_arch.lower()
-    t_label = target_label.lower()
+    t_label = target_label.lower() if target_label else ""
     t_family = target_family.lower()
 
-    for asset in package_assets:
-        n = asset["name"].lower()
-        if t_arch in n and t_label in n:
-            selected_asset = asset
-            break
+    family_tokens = {
+        "linux": ["ubuntu", "linux", "debian"],
+        "macos": ["macos", "darwin", "osx"],
+        "windows": ["windows", "win"],
+    }.get(t_family, [t_family])
 
+    # 1. Exact match with specific runner label and arch (accounting for preview/variant tags)
+    if t_label:
+        clean_label = re.sub(r"-vs\d+", "", t_label)
+        for asset in package_assets:
+            n = asset["name"].lower()
+            if t_arch in n and (t_label in n or clean_label in n):
+                selected_asset = asset
+                break
+
+    # 2. Family match with runner OS family and arch
     if not selected_asset:
         for asset in package_assets:
             n = asset["name"].lower()
-            if t_arch in n and t_family in n:
+            if t_arch in n and any(tok in n for tok in family_tokens):
                 selected_asset = asset
                 break
 
     if not selected_asset:
-        for asset in package_assets:
-            n = asset["name"].lower()
-            if t_arch in n:
-                selected_asset = asset
-                break
-
-    if not selected_asset:
-        raise RuntimeError(f"No compatible binary package found for {target_label} ({target_arch}) in release assets.")
+        available_names = [a["name"] for a in package_assets]
+        raise RuntimeError(
+            f"No compatible binary package found for {target_label} ({target_arch}) in release assets.\n"
+            f"Available packages in release: {available_names}"
+        )
 
     print(f"Selected asset: {selected_asset['name']}")
 
@@ -334,7 +350,7 @@ def main():
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         py_ver_out = subprocess.check_output([py_bin, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}')"], env=run_env).decode().strip()
-        ssl_ver_out = subprocess.check_output([py_bin, "-c", "import ssl; print(ssl.OPENSSL_VERSION)"], env=run_env).decode().strip()
+        ssl_ver_out = subprocess.check_output([py_bin, "-c", "import ssl; print(ssl.OPENSSL_VERSION.split()[1] if ' ' in ssl.OPENSSL_VERSION else ssl.OPENSSL_VERSION)"], env=run_env).decode().strip()
         with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"python-path={py_bin}\n")
             f.write(f"python-version={py_ver_out}\n")
