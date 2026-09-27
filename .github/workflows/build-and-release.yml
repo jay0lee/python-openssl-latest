@@ -159,6 +159,37 @@ jobs:
           $pyInstall = Join-Path $env:RUNNER_TEMP "install\python"
           .\scripts\build_python.ps1 -PythonVersion $env:PYTHON_VERSION -OpenSSLVersion $env:OPENSSL_VERSION -OpenSSLInstallDir $osslInstall -SourceDir $pySrc -InstallDir $pyInstall -Arch $env:RUNNER_ARCH
 
+      # Validate Runtime (Linux / macOS)
+      - name: Validate runtime (Linux / macOS)
+        if: matrix.os_family != 'windows'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          PYTHON_INSTALL="${RUNNER_TEMP}/install/python"
+          OPENSSL_INSTALL="${RUNNER_TEMP}/install/ssl"
+          export PATH="${PYTHON_INSTALL}/bin:${PATH}"
+          export LD_LIBRARY_PATH="${PYTHON_INSTALL}/lib:${OPENSSL_INSTALL}/lib:${LD_LIBRARY_PATH:-}"
+          export DYLD_LIBRARY_PATH="${PYTHON_INSTALL}/lib:${OPENSSL_INSTALL}/lib:${DYLD_LIBRARY_PATH:-}"
+          echo "Verifying Python and OpenSSL installation:"
+          "${PYTHON_INSTALL}/bin/python3" -VV
+          "${PYTHON_INSTALL}/bin/python3" -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
+          echo "Running GAM / GYB Validation Suite..."
+          "${PYTHON_INSTALL}/bin/python3" scripts/validate_runtime.py
+
+      # Validate Runtime (Windows)
+      - name: Validate runtime (Windows)
+        if: matrix.os_family == 'windows'
+        shell: powershell
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          $py = Join-Path $env:RUNNER_TEMP "install\python\python.exe"
+          Write-Host "Verifying Python and OpenSSL installation:"
+          & $py -VV
+          & $py -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
+          Write-Host "Running GAM / GYB Validation Suite..."
+          & $py scripts\validate_runtime.py
+
       # Package bundle
       - name: Package compiled bundle (Unix)
         if: matrix.os_family != 'windows'

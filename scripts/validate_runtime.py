@@ -33,11 +33,11 @@ import zipfile
 import hashlib
 import hmac
 
-# Reconfigure stdout/stderr to UTF-8 on Windows cp1252 consoles
+# Reconfigure stdout/stderr to UTF-8 on Windows cp1252 consoles with immediate line buffering
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     except Exception:
         pass
 
@@ -69,15 +69,15 @@ c = Colors()
 
 
 def log_test_header(name):
-    print(f"\n{c.bold('▶ Testing:')} {c.cyan(name)}")
+    print(f"\n{c.bold('▶ Testing:')} {c.cyan(name)}", flush=True)
 
 
 def log_test_result(name, duration, details=None):
     dur_str = f"{duration * 1000:.1f}ms"
-    print(f"  {c.green('✔ PASS')} {name} {c.dim(f'({dur_str})')}")
+    print(f"  {c.green('✔ PASS')} {name} {c.dim(f'({dur_str})')}", flush=True)
     if details:
         for k, v in details.items():
-            print(f"    {c.dim('•')} {k}: {c.bold(v)}")
+            print(f"    {c.dim('•')} {k}: {c.bold(v)}", flush=True)
 
 
 def get_ssl_context():
@@ -89,6 +89,9 @@ def get_ssl_context():
         "/etc/ssl/certs/ca-certificates.crt",         # Ubuntu / Debian
         "/etc/pki/tls/certs/ca-bundle.crt",           # RHEL / Fedora
         "/etc/ssl/ca-bundle.pem",                     # OpenSUSE
+        r"C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt",  # Windows Git
+        r"C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt",          # Windows Git usr
+        r"C:\Program Files\Git\mingw64\ssl\certs\ca-bundle.crt",      # Windows Git mingw
     ]
     for ca_path in system_ca_bundles:
         if ca_path and os.path.isfile(ca_path):
@@ -524,4 +527,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

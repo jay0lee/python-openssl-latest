@@ -303,8 +303,8 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
             if not canonical_label:
                 canonical_label = free_labels[0]
 
-        # Deduplicate specialized variant images (e.g. windows-11-vs2026-arm when windows-11-arm is present)
-        if "-vs2026" in canonical_label and "windows-11-arm" in labels_raw:
+        # Deduplicate preview / migration variant images (e.g. windows-11-vs2026-arm, windows-2025-vs2026)
+        if "-vs2026" in canonical_label or "with visual studio" in image_raw.lower():
             continue
 
         os_lower = canonical_label.lower()

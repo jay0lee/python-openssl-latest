@@ -119,15 +119,4 @@ if [[ "$RUNNER_OS" == "Darwin" || "$RUNNER_OS" == "macOS" ]]; then
   fi
 fi
 
-# Test the newly compiled Python and OpenSSL integration
-export PATH="${INSTALL_DIR}/bin:${PATH}"
-export LD_LIBRARY_PATH="${INSTALL_DIR}/lib:${OPENSSL_INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"
-export DYLD_LIBRARY_PATH="${INSTALL_DIR}/lib:${OPENSSL_INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH:-}"
-
-echo "=================================================="
-echo "Verifying Python and OpenSSL Installation:"
-"${INSTALL_DIR}/bin/python3" -VV
-"${INSTALL_DIR}/bin/python3" -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
-echo "Running GAM / GYB Validation Suite..."
-"${INSTALL_DIR}/bin/python3" "${REPO_ROOT}/scripts/validate_runtime.py"
-echo "=================================================="
+echo "Python compilation and installation completed successfully."
