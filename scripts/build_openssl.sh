@@ -101,12 +101,12 @@ if [[ -f "${INSTALL_DIR}/bin/openssl" ]]; then
   strip "${INSTALL_DIR}/bin/openssl" || true
 fi
 
-# Link system CA certificates into OpenSSL's cert directory
+# Copy system CA certificates into OpenSSL's cert directory as standalone files
 mkdir -p "${INSTALL_DIR}/ssl" "${INSTALL_DIR}/certs"
 for ca in "/etc/ssl/cert.pem" "/etc/ssl/certs/ca-certificates.crt" "/etc/pki/tls/certs/ca-bundle.crt"; do
   if [[ -f "$ca" ]]; then
-    ln -sf "$ca" "${INSTALL_DIR}/ssl/cert.pem" || cp "$ca" "${INSTALL_DIR}/ssl/cert.pem"
-    ln -sf "$ca" "${INSTALL_DIR}/cert.pem" || cp "$ca" "${INSTALL_DIR}/cert.pem"
+    cp -L -f "$ca" "${INSTALL_DIR}/ssl/cert.pem" || cp -f "$ca" "${INSTALL_DIR}/ssl/cert.pem"
+    cp -L -f "$ca" "${INSTALL_DIR}/cert.pem" || cp -f "$ca" "${INSTALL_DIR}/cert.pem"
     break
   fi
 done

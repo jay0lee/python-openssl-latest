@@ -144,7 +144,10 @@ def extract_archive(archive_path, dest_dir):
     else:
         # tar.xz or tar.gz
         with tarfile.open(archive_path, "r:*") as tf:
-            tf.extractall(dest_dir)
+            try:
+                tf.extractall(dest_dir, filter="tar")
+            except (TypeError, AttributeError):
+                tf.extractall(dest_dir)
 
 
 def main():
