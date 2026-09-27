@@ -63,6 +63,19 @@ if ($pyMajor -eq "3" -and $pyMinor -eq "14" -and [int]$osslMajor -ge 4) {
     }
 }
 
+# Update PCbuild\python.props for Visual Studio 2026 compatibility if needed.
+# In Python 3.14.7, python.props mapped VisualStudioVersion 18.0 to v143 (which is not installed in VS 2026).
+# Upstream CPython 3.14 HEAD updated this to v145.
+if (Test-Path "PCbuild\python.props") {
+    $propsPath = "PCbuild\python.props"
+    $propsContent = Get-Content $propsPath -Raw
+    if ($propsContent -match "'\$\(VisualStudioVersion\)' == '18\.0'>v143<") {
+        Write-Host "Updating PCbuild\python.props for VS 2026 (v143 -> v145)..."
+        $propsContent = $propsContent.Replace("'`$(VisualStudioVersion)' == '18.0'>v143<", "'`$(VisualStudioVersion)' == '18.0'>v145<")
+        Set-Content -Path $propsPath -Value $propsContent -Encoding utf8
+    }
+}
+
 # 1. Fetch externals excluding OpenSSL (we provide our own freshly built OpenSSL)
 Write-Host "Fetching external dependencies (excluding OpenSSL)..."
 & PCBuild\get_externals.bat --no-openssl
@@ -92,31 +105,24 @@ if (Test-Path "$resolvedOpenSSL\include\openssl\applink.c") {
 $env:OpenSSLInstallDir = $resolvedOpenSSL
 $env:ExternalProps = $propsSrc
 
-# Configure MSBuild response file PCbuild\msbuild.rsp so all MSBuild invocations (including nested/PGO) inherit these properties
-$rspLines = @(
-    "/p:ExternalProps=`"$propsSrc`"",
-    "/p:OpenSSLInstallDir=`"$resolvedOpenSSL`""
-)
-
-# If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
-$hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
-if (-not $hasDlls) {
-    $env:SkipCopySSLDLL = "true"
-    $rspLines += "/p:SkipCopySSLDLL=true"
-}
-
-Set-Content -Path "PCbuild\msbuild.rsp" -Value $rspLines -Encoding ASCII
-Write-Host "Configured MSBuild response file PCbuild\msbuild.rsp with ExternalProps: $propsSrc"
-
-# 4. Build Python
-# Ensure Visual Studio modern MSBuild is prioritized over .NET Framework MSBuild
-if (-not $env:MSBUILD -or -not (Test-Path $env:MSBUILD)) {
+# 3. Locate Visual Studio installation and MSBuild
+$vsPath = $env:VSINSTALLDIR
+if (-not $vsPath -or -not (Test-Path $vsPath)) {
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $vswhere)) {
         $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
     }
     if (Test-Path $vswhere) {
         $vsPath = (& $vswhere -latest -products * -property installationPath).Trim()
+    }
+}
+if (-not $vsPath -and $env:MSBUILD -and (Test-Path $env:MSBUILD)) {
+    $vsPath = (Get-Item $env:MSBUILD).Directory.Parent.Parent.Parent.FullName
+}
+
+# Ensure Visual Studio modern MSBuild is prioritized over .NET Framework MSBuild
+if (-not $env:MSBUILD -or -not (Test-Path $env:MSBUILD)) {
+    if ($vsPath) {
         $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
         if (Test-Path $candidate) {
             $env:MSBUILD = $candidate
@@ -129,21 +135,71 @@ if ($env:MSBUILD -and (Test-Path $env:MSBUILD)) {
     $env:PATH = "$msbDir;$env:PATH"
 }
 
-# Detect available PlatformToolset if v143 is missing (e.g. on VS 2026 runners)
+# Detect installed MSVC toolsets (e.g. v145 on VS 2026, v143 on VS 2022)
+$selectedToolset = $null
 if ($vsPath -and (Test-Path $vsPath)) {
-    $toolsetDirs = Get-ChildItem -Path "$vsPath\MSBuild\Microsoft\VC\*\Platforms\*\PlatformToolsets" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name -Unique
-    if ($toolsetDirs) {
-        $selectedToolset = if ($toolsetDirs -contains "v143") { "v143" } elseif ($toolsetDirs -contains "v144") { "v144" } elseif ($toolsetDirs -contains "v180") { "v180" } else { $toolsetDirs[0] }
-        Write-Host "Detected MSBuild PlatformToolset: $selectedToolset"
-        "/p:PlatformToolset=$selectedToolset" | Out-File -FilePath "PCbuild\msbuild.rsp" -Encoding ascii
+    $foundToolsets = @()
+    $toolsetDirs = Get-ChildItem -Path "$vsPath\MSBuild\Microsoft\VC" -Recurse -Depth 4 -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Parent.Name -eq "PlatformToolsets" } | Select-Object -ExpandProperty Name -Unique
+    if ($toolsetDirs) { $foundToolsets += $toolsetDirs }
+    
+    $msvcDir = Join-Path $vsPath "VC\Tools\MSVC"
+    if (Test-Path $msvcDir) {
+        foreach ($d in (Get-ChildItem -Path $msvcDir -Directory -ErrorAction SilentlyContinue)) {
+            if ($d.Name -match "^14\.5") { $foundToolsets += "v145" }
+            elseif ($d.Name -match "^14\.4") { $foundToolsets += "v144" }
+            elseif ($d.Name -match "^14\.3") { $foundToolsets += "v143" }
+        }
     }
+    $foundToolsets = $foundToolsets | Select-Object -Unique
+    Write-Host "Found available MSVC toolsets: $($foundToolsets -join ', ')"
+
+    $hasV143 = $foundToolsets -contains "v143"
+    if ($env:VisualStudioVersion -eq "18.0" -or $vsPath -match "[\\/]18[\\/]") {
+        if ($foundToolsets -contains "v145") {
+            $selectedToolset = "v145"
+        } elseif ($foundToolsets -contains "v144") {
+            $selectedToolset = "v144"
+        } elseif (-not $hasV143) {
+            $selectedToolset = "v145"
+        }
+    } elseif (-not $hasV143 -and $foundToolsets.Count -gt 0) {
+        $selectedToolset = $foundToolsets[0]
+    }
+}
+
+# 4. Configure MSBuild response file PCbuild\msbuild.rsp so all MSBuild invocations (including nested/PGO) inherit these properties
+$rspLines = @(
+    "/p:ExternalProps=`"$propsSrc`"",
+    "/p:OpenSSLInstallDir=`"$resolvedOpenSSL`""
+)
+
+# If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
+$hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
+if (-not $hasDlls) {
+    $env:SkipCopySSLDLL = "true"
+    $rspLines += "/p:SkipCopySSLDLL=true"
+}
+
+if ($selectedToolset) {
+    Write-Host "Setting MSBuild PlatformToolset to: $selectedToolset"
+    $rspLines += "/p:PlatformToolset=$selectedToolset"
+}
+
+Set-Content -Path "PCbuild\msbuild.rsp" -Value $rspLines -Encoding ASCII
+Write-Host "Configured MSBuild response file PCbuild\msbuild.rsp with properties:"
+$rspLines | ForEach-Object { Write-Host "  $_" }
+
+# 5. Build Python
+$extraBuildArgs = @()
+if ($selectedToolset) {
+    $extraBuildArgs += "`"/p:PlatformToolset=$selectedToolset`""
 }
 
 Write-Host "Building Python for $buildArch..."
 if ($buildArch -eq "ARM64") {
-    & PCBuild\build.bat -c Release -p $buildArch
+    & PCBuild\build.bat -c Release -p $buildArch @extraBuildArgs
 } else {
-    & PCBuild\build.bat -c Release -p $buildArch --pgo
+    & PCBuild\build.bat -c Release -p $buildArch --pgo @extraBuildArgs
 }
 if ($LASTEXITCODE -ne 0) {
     throw "PCBuild\build.bat failed with exit code $LASTEXITCODE"
