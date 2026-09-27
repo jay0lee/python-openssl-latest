@@ -71,7 +71,7 @@ if [[ "$RUNNER_OS" == "Darwin" || "$RUNNER_OS" == "macOS" ]]; then
   export LDFLAGS="-Wl,-dead_strip -Wl,-rpath,@executable_path/../lib"
 elif [[ "$RUNNER_OS" == "Linux" ]]; then
   export CFLAGS="-O3 -pipe"
-  export LDFLAGS="-Wl,--strip-all -Wl,-rpath,'\$\$ORIGIN/../lib'"
+  export LDFLAGS="-Wl,--strip-all"
 fi
 
 echo "Configuring Python..."

@@ -242,6 +242,31 @@ def main():
         shutil.rmtree(install_dir)
     extract_archive(archive_path, install_dir)
 
+    # On Linux, remove any DT_RUNPATH/DT_RPATH tags from shared libraries to support staticx
+    if runner["os_family"] == "linux":
+        patchelf_bin = shutil.which("patchelf")
+        if not patchelf_bin:
+            try:
+                subprocess.call(
+                    ["sudo", "apt-get", "install", "-y", "-qq", "patchelf"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                patchelf_bin = shutil.which("patchelf")
+            except Exception:
+                pass
+        if patchelf_bin:
+            for root, _, files in os.walk(install_dir):
+                for fname in files:
+                    if fname.endswith(".so") or ".so." in fname:
+                        fpath = os.path.join(root, fname)
+                        try:
+                            subprocess.call(
+                                [patchelf_bin, "--remove-rpath", fpath],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                            )
+                        except Exception:
+                            pass
+
     # Locate Python binary and OpenSSL directory inside extracted bundle
     py_bin = None
     py_root = os.path.join(install_dir, "python")
