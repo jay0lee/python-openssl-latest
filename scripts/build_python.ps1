@@ -129,6 +129,16 @@ if ($env:MSBUILD -and (Test-Path $env:MSBUILD)) {
     $env:PATH = "$msbDir;$env:PATH"
 }
 
+# Detect available PlatformToolset if v143 is missing (e.g. on VS 2026 runners)
+if ($vsPath -and (Test-Path $vsPath)) {
+    $toolsetDirs = Get-ChildItem -Path "$vsPath\MSBuild\Microsoft\VC\*\Platforms\*\PlatformToolsets" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name -Unique
+    if ($toolsetDirs) {
+        $selectedToolset = if ($toolsetDirs -contains "v143") { "v143" } elseif ($toolsetDirs -contains "v144") { "v144" } elseif ($toolsetDirs -contains "v180") { "v180" } else { $toolsetDirs[0] }
+        Write-Host "Detected MSBuild PlatformToolset: $selectedToolset"
+        "/p:PlatformToolset=$selectedToolset" | Out-File -FilePath "PCbuild\msbuild.rsp" -Encoding ascii
+    }
+}
+
 Write-Host "Building Python for $buildArch..."
 if ($buildArch -eq "ARM64") {
     & PCBuild\build.bat -c Release -p $buildArch

@@ -108,6 +108,14 @@ fi
 # Strip binary to reduce package size
 strip python3 || true
 
+# On Linux, ensure all shared libraries have RPATH removed for StaticX compatibility
+if [[ "$RUNNER_OS" == "Linux" ]]; then
+  if command -v patchelf >/dev/null 2>&1; then
+    echo "Running patchelf --remove-rpath on all compiled shared libraries..."
+    find "${INSTALL_DIR}" -type f \( -name "*.so" -o -name "*.so.*" \) -exec patchelf --remove-rpath {} + 2>/dev/null || true
+  fi
+fi
+
 # On macOS, fix dylib install name and executable references to use @rpath for full relocatability
 if [[ "$RUNNER_OS" == "Darwin" || "$RUNNER_OS" == "macOS" ]]; then
   MAJOR_MINOR="${MAJOR_PY}.${MINOR_PY}"
