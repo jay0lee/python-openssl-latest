@@ -162,6 +162,56 @@ jobs:
           $pyInstall = Join-Path $env:RUNNER_TEMP "install\python"
           .\scripts\build_python.ps1 -PythonVersion $env:PYTHON_VERSION -OpenSSLVersion $env:OPENSSL_VERSION -OpenSSLInstallDir $osslInstall -SourceDir $pySrc -InstallDir $pyInstall -Arch $env:RUNNER_ARCH
 
+      # Verify Native Binary Architecture (Linux / macOS)
+      - name: Verify native binary architecture (Linux / macOS)
+        if: matrix.os_family != 'windows'
+        run: |
+          PYTHON_BIN="${RUNNER_TEMP}/install/python/bin/python3"
+          OPENSSL_BIN="${RUNNER_TEMP}/install/ssl/bin/openssl"
+          EXPECTED_ARCH="${RUNNER_ARCH}"
+
+          echo "=================================================="
+          echo "Verifying Native Binary Architecture on ${RUNNER_OS} (${EXPECTED_ARCH})"
+          echo "=================================================="
+
+          if [[ "${OS_FAMILY}" == "macos" ]]; then
+            echo "Checking Mach-O headers with lipo and file:"
+            lipo -info "${PYTHON_BIN}"
+            file "${PYTHON_BIN}"
+            lipo -info "${OPENSSL_BIN}"
+            file "${OPENSSL_BIN}"
+
+            if [[ "${EXPECTED_ARCH}" == "arm64" ]]; then
+              lipo -info "${PYTHON_BIN}" | grep -w "arm64" || { echo "FATAL: ${PYTHON_BIN} is not native arm64!"; exit 1; }
+              lipo -info "${OPENSSL_BIN}" | grep -w "arm64" || { echo "FATAL: ${OPENSSL_BIN} is not native arm64!"; exit 1; }
+              if lipo -info "${PYTHON_BIN}" | grep -w "x86_64"; then
+                echo "FATAL: ${PYTHON_BIN} contains x86_64 binary on arm64 runner (Rosetta translation risk)!"; exit 1;
+              fi
+            elif [[ "${EXPECTED_ARCH}" == "x64" ]]; then
+              lipo -info "${PYTHON_BIN}" | grep -w "x86_64" || { echo "FATAL: ${PYTHON_BIN} is not native x86_64!"; exit 1; }
+              lipo -info "${OPENSSL_BIN}" | grep -w "x86_64" || { echo "FATAL: ${OPENSSL_BIN} is not native x86_64!"; exit 1; }
+              if lipo -info "${PYTHON_BIN}" | grep -w "arm64"; then
+                echo "FATAL: ${PYTHON_BIN} contains arm64 binary on x64 runner!"; exit 1;
+              fi
+            fi
+
+          elif [[ "${OS_FAMILY}" == "linux" ]]; then
+            echo "Checking ELF headers with readelf and file:"
+            file "${PYTHON_BIN}"
+            readelf -h "${PYTHON_BIN}" | grep "Machine:"
+            file "${OPENSSL_BIN}"
+            readelf -h "${OPENSSL_BIN}" | grep "Machine:"
+
+            if [[ "${EXPECTED_ARCH}" == "arm64" ]]; then
+              readelf -h "${PYTHON_BIN}" | grep -i "aarch64" || { echo "FATAL: ${PYTHON_BIN} is not native AArch64!"; exit 1; }
+              readelf -h "${OPENSSL_BIN}" | grep -i "aarch64" || { echo "FATAL: ${OPENSSL_BIN} is not native AArch64!"; exit 1; }
+            elif [[ "${EXPECTED_ARCH}" == "x64" ]]; then
+              readelf -h "${PYTHON_BIN}" | grep -i "x86-64" || { echo "FATAL: ${PYTHON_BIN} is not native x86-64!"; exit 1; }
+              readelf -h "${OPENSSL_BIN}" | grep -i "x86-64" || { echo "FATAL: ${OPENSSL_BIN} is not native x86-64!"; exit 1; }
+            fi
+          fi
+          echo "Native binary architecture successfully verified for all Unix binaries."
+
       # Validate Runtime (Linux / macOS)
       - name: Validate runtime (Linux / macOS)
         if: matrix.os_family != 'windows'
@@ -177,7 +227,47 @@ jobs:
           "${PYTHON_INSTALL}/bin/python3" -VV
           "${PYTHON_INSTALL}/bin/python3" -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
           echo "Running GAM / GYB Validation Suite..."
-          "${PYTHON_INSTALL}/bin/python3" scripts/validate_runtime.py
+          "${PYTHON_INSTALL}/bin/python3" scripts/validate_runtime.py --expected-arch "${RUNNER_ARCH}"
+
+      # Verify Native Binary Architecture (Windows)
+      - name: Verify native binary architecture (Windows)
+        if: matrix.os_family == 'windows'
+        shell: powershell
+        run: |
+          $pyBin = Join-Path $env:RUNNER_TEMP "install\python\python.exe"
+          $pyDll = Get-ChildItem -Path (Join-Path $env:RUNNER_TEMP "install\python") -Filter "python3*.dll" | Select-Object -First 1 -ExpandProperty FullName
+          $osslBin = Join-Path $env:RUNNER_TEMP "install\ssl\bin\openssl.exe"
+          $expectedArch = $env:RUNNER_ARCH.ToLower()
+
+          Write-Host "=================================================="
+          Write-Host "Verifying Native PE Header Architecture for Windows ($expectedArch)"
+          Write-Host "=================================================="
+
+          function Assert-PEArch {
+              param([string]$Path, [string]$Expected)
+              if (-not (Test-Path $Path)) { throw "Binary not found: $Path" }
+              $bytes = [System.IO.File]::ReadAllBytes($Path)
+              $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3C)
+              $machine = [System.BitConverter]::ToUInt16($bytes, $peOffset + 4)
+              $actual = switch ($machine) {
+                  0x8664 { "x64" }
+                  0xAA64 { "arm64" }
+                  0x014C { "x86" }
+                  default { "0x{0:X4}" -f $machine }
+              }
+              Write-Host "PE Binary: $Path -> Machine: $actual (Expected: $Expected, Magic: 0x$($machine.ToString('X4')))"
+              if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
+                  dumpbin /headers $Path | Select-String "machine \(" | ForEach-Object { Write-Host "  dumpbin: $_" }
+              }
+              if ($actual -ne $Expected) {
+                  throw "FATAL ARCHITECTURE MISMATCH: $Path is $actual, but expected native $Expected!"
+              }
+          }
+
+          Assert-PEArch -Path $pyBin -Expected $expectedArch
+          if ($pyDll) { Assert-PEArch -Path $pyDll -Expected $expectedArch }
+          if (Test-Path $osslBin) { Assert-PEArch -Path $osslBin -Expected $expectedArch }
+          Write-Host "Native PE binary architecture successfully verified for all Windows binaries."
 
       # Validate Runtime (Windows)
       - name: Validate runtime (Windows)
@@ -191,7 +281,7 @@ jobs:
           & $py -VV
           & $py -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
           Write-Host "Running GAM / GYB Validation Suite..."
-          & $py scripts\validate_runtime.py
+          & $py scripts\validate_runtime.py --expected-arch $env:RUNNER_ARCH
 
       # Package bundle
       - name: Package compiled bundle (Unix)

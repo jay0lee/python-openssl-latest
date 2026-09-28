@@ -453,6 +453,106 @@ def test_multithreading_concurrency():
     )
 
 
+def inspect_binary_machine(filepath):
+    """Directly inspect binary file header (ELF, Mach-O, PE) on disk to extract native architecture."""
+    import struct
+    real_path = os.path.realpath(filepath)
+    with open(real_path, "rb") as f:
+        magic = f.read(4)
+        if magic == b"MZ":  # Windows PE
+            f.seek(0x3C)
+            pe_offset = struct.unpack("<I", f.read(4))[0]
+            f.seek(pe_offset)
+            pe_sig = f.read(4)
+            if pe_sig != b"PE\0\0":
+                raise ValueError(f"Invalid PE signature in {real_path}")
+            machine = struct.unpack("<H", f.read(2))[0]
+            if machine == 0x8664:
+                return "x64", "PE32+ (x64 / AMD64, 0x8664)"
+            elif machine == 0xAA64:
+                return "arm64", "PE32+ (ARM64, 0xAA64)"
+            elif machine == 0x014C:
+                return "x86", "PE32 (x86 32-bit, 0x014C)"
+            return f"pe-0x{machine:04x}", f"PE unknown (0x{machine:04x})"
+
+        elif magic == b"\x7fELF":  # Linux ELF
+            f.seek(4)
+            elf_class = ord(f.read(1))
+            f.seek(18)
+            e_machine = struct.unpack("<H", f.read(2))[0]
+            if e_machine == 62:
+                return "x64", "ELF 64-bit (x86-64, machine 62)"
+            elif e_machine == 183:
+                return "arm64", "ELF 64-bit (AArch64 / ARM64, machine 183)"
+            elif e_machine == 3:
+                return "x86", "ELF 32-bit (i386, machine 3)"
+            return f"elf-{e_machine}", f"ELF (machine {e_machine}, class {elf_class})"
+
+        elif magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):  # Mach-O 64-bit
+            endian = "<" if magic == b"\xcf\xfa\xed\xfe" else ">"
+            cputype = struct.unpack(endian + "I", f.read(4))[0]
+            if cputype == 0x0100000C:  # CPU_TYPE_ARM64
+                return "arm64", "Mach-O 64-bit (ARM64, 0x0100000C)"
+            elif cputype == 0x01000007:  # CPU_TYPE_X86_64
+                return "x64", "Mach-O 64-bit (x86_64, 0x01000007)"
+            return f"macho-0x{cputype:08x}", f"Mach-O 64-bit (0x{cputype:08x})"
+
+        elif magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):  # Mach-O Universal Fat
+            endian = "<" if magic == b"\xbe\xba\xfe\xca" else ">"
+            nfat = struct.unpack(endian + "I", f.read(4))[0]
+            archs = []
+            for _ in range(nfat):
+                ctype = struct.unpack(endian + "I", f.read(4))[0]
+                f.seek(16, os.SEEK_CUR)
+                if ctype == 0x0100000C:
+                    archs.append("arm64")
+                elif ctype == 0x01000007:
+                    archs.append("x64")
+            return ",".join(archs), f"Mach-O Universal Fat ({', '.join(archs)})"
+
+        raise ValueError(f"Unknown executable format for {real_path} (magic: {magic!r})")
+
+
+def test_native_binary_architecture(expected_arch=None):
+    """Inspect on-disk binary headers to verify native compilation and guard against Rosetta/WOW64 emulation."""
+    log_test_header("Native Binary Architecture & Host Verification")
+    t0 = time.perf_counter()
+
+    executable = sys.executable
+    detected_arch, desc = inspect_binary_machine(executable)
+
+    ptr_bits = 64 if sys.maxsize > 2**32 else 32
+    if ptr_bits != 64:
+        raise AssertionError(f"Python binary is 32-bit (sys.maxsize={sys.maxsize}), expected 64-bit native binary!")
+
+    details = {
+        "Executable": executable,
+        "Binary Header Inspection": desc,
+        "Pointer Width": f"{ptr_bits}-bit",
+        "Python Reported Machine": platform.machine(),
+    }
+
+    if expected_arch:
+        expected_clean = expected_arch.lower().strip()
+        if expected_clean in ("arm64", "aarch64"):
+            expected_canon = "arm64"
+        elif expected_clean in ("x64", "x86_64", "amd64"):
+            expected_canon = "x64"
+        else:
+            expected_canon = expected_clean
+
+        detected_list = detected_arch.split(",")
+        if expected_canon not in detected_list:
+            raise AssertionError(
+                f"FATAL ARCHITECTURE MISMATCH: Binary {executable} is compiled for [{desc}], "
+                f"but host runner strictly requires native [{expected_canon}]!"
+            )
+        details["Native Host Architecture Match"] = f"VERIFIED: native {expected_canon} (matches runner hardware)"
+
+    elapsed = time.perf_counter() - t0
+    log_test_result("Native Binary Architecture Verification", elapsed, details)
+
+
 def test_runtime_isolation():
     """8. Test runtime environment isolation and platform paths."""
     log_test_header("Runtime Isolation & Environment Health")
@@ -480,6 +580,7 @@ def main():
     parser = argparse.ArgumentParser(description="Validate Python + OpenSSL runtime for GAM/GYB readiness.")
     parser.add_argument("--skip-network", action="store_true", help="Skip online Google API TLS handshake tests")
     parser.add_argument("--expected-openssl-prefix", default="OpenSSL 4.", help="Expected OpenSSL version prefix (default: 'OpenSSL 4.')")
+    parser.add_argument("--expected-arch", default=None, help="Expected native architecture (e.g. 'arm64' or 'x64') to enforce via binary header inspection")
     args = parser.parse_args()
 
     print("\n" + c.bold("=================================================="))
@@ -488,12 +589,15 @@ def main():
     print(f"  Python Version:  {c.cyan(sys.version.split()[0])}")
     print(f"  OpenSSL Version: {c.cyan(ssl.OPENSSL_VERSION)}")
     print(f"  Executable Path: {c.dim(sys.executable)}")
-    print(f"  Platform Target: {c.cyan(platform.system())} ({platform.machine()})")
+    target_arch = args.expected_arch or os.environ.get("RUNNER_ARCH")
+    if target_arch:
+        print(f"  Required Native Arch: {c.bold(target_arch)}")
 
     t_suite_start = time.perf_counter()
     errors = []
 
     tests = [
+        ("Native Architecture Verification", lambda: test_native_binary_architecture(expected_arch=target_arch)),
         ("Runtime Isolation", test_runtime_isolation),
         ("Cryptographic Hashing", test_cryptographic_hashing),
         ("Compression Libraries", test_compression_libraries),
