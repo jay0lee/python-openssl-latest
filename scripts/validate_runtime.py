@@ -459,7 +459,7 @@ def inspect_binary_machine(filepath):
     real_path = os.path.realpath(filepath)
     with open(real_path, "rb") as f:
         magic = f.read(4)
-        if magic == b"MZ":  # Windows PE
+        if magic.startswith(b"MZ"):  # Windows PE
             f.seek(0x3C)
             pe_offset = struct.unpack("<I", f.read(4))[0]
             f.seek(pe_offset)
@@ -475,7 +475,7 @@ def inspect_binary_machine(filepath):
                 return "x86", "PE32 (x86 32-bit, 0x014C)"
             return f"pe-0x{machine:04x}", f"PE unknown (0x{machine:04x})"
 
-        elif magic == b"\x7fELF":  # Linux ELF
+        elif magic.startswith(b"\x7fELF"):  # Linux ELF
             f.seek(4)
             elf_class = ord(f.read(1))
             f.seek(18)
