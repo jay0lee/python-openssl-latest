@@ -24,6 +24,17 @@ import tarfile
 import urllib.request
 import zipfile
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def create_ssl_context():
     ctx = ssl.create_default_context()
@@ -416,7 +427,14 @@ def main():
     )
 
     if not args.quiet and summary:
-        print("\n" + summary, flush=True)
+        try:
+            print("\n" + summary, flush=True)
+        except Exception:
+            try:
+                safe_summary = summary.encode("ascii", errors="replace").decode("ascii")
+                print("\n" + safe_summary, flush=True)
+            except Exception:
+                pass
 
     # Set GITHUB_OUTPUT
     github_output = os.environ.get("GITHUB_OUTPUT")

@@ -17,6 +17,17 @@ import struct
 import subprocess
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def get_openssl_info(ossl_bin=None, ssl_root=None, env=None):
     """Query OpenSSL binary for compile flags and configuration info."""
@@ -162,73 +173,73 @@ def format_build_summary(py_info, ossl_info, runner_label=None, runner_arch=None
     sub_bar = "-" * 80
 
     lines.append(bar)
-    lines.append("🚀 Python + OpenSSL Build Configuration & Compiler Flags Summary")
+    lines.append("Python + OpenSSL Build Configuration & Compiler Flags Summary")
     lines.append(bar)
 
     # 1. Package & Environment Overview
-    lines.append("\n📦 Package & Target Environment:")
+    lines.append("\nPackage & Target Environment:")
     if py_info.get("version"):
-        lines.append(f"  • Python Version:      {py_info['version']}")
+        lines.append(f"  * Python Version:      {py_info['version']}")
     if ossl_info.get("version"):
-        lines.append(f"  • OpenSSL Version:     {ossl_info['version']}")
+        lines.append(f"  * OpenSSL Version:     {ossl_info['version']}")
     elif py_info.get("openssl_version"):
-        lines.append(f"  • OpenSSL Version:     {py_info['openssl_version']}")
+        lines.append(f"  * OpenSSL Version:     {py_info['openssl_version']}")
 
     target_env = runner_label or platform.system()
     if runner_arch:
         target_env += f" ({runner_arch})"
-    lines.append(f"  • Target Platform:     {target_env}")
+    lines.append(f"  * Target Platform:     {target_env}")
 
     if py_info.get("architecture") or py_info.get("bitness"):
         arch_str = f"{py_info.get('architecture', 'unknown')} ({py_info.get('bitness', 'unknown')})"
-        lines.append(f"  • Binary Architecture: {arch_str}")
+        lines.append(f"  * Binary Architecture: {arch_str}")
 
     if commit_sha:
-        lines.append(f"  • Git Commit:          {commit_sha}")
+        lines.append(f"  * Git Commit:          {commit_sha}")
     build_time = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    lines.append(f"  • Generated At:        {build_time}")
+    lines.append(f"  * Generated At:        {build_time}")
 
     # 2. OpenSSL Build Configuration & Flags
-    lines.append("\n🔒 OpenSSL Build Configuration & Flags:")
+    lines.append("\nOpenSSL Build Configuration & Flags:")
     if ossl_info.get("platform"):
-        lines.append(f"  • Platform Target:     {ossl_info['platform']}")
+        lines.append(f"  * Platform Target:     {ossl_info['platform']}")
     if ossl_info.get("built_on"):
-        lines.append(f"  • Build Date:          {ossl_info['built_on']}")
+        lines.append(f"  * Build Date:          {ossl_info['built_on']}")
     if ossl_info.get("options"):
-        lines.append(f"  • Configure Options:   {ossl_info['options']}")
+        lines.append(f"  * Configure Options:   {ossl_info['options']}")
     if ossl_info.get("compiler"):
-        lines.append(f"  • Compiler & Flags:    {ossl_info['compiler']}")
+        lines.append(f"  * Compiler & Flags:    {ossl_info['compiler']}")
     if ossl_info.get("openssldir"):
-        lines.append(f"  • OPENSSLDIR:          {ossl_info['openssldir']}")
+        lines.append(f"  * OPENSSLDIR:          {ossl_info['openssldir']}")
     if ossl_info.get("modulesdir"):
-        lines.append(f"  • MODULESDIR:          {ossl_info['modulesdir']}")
+        lines.append(f"  * MODULESDIR:          {ossl_info['modulesdir']}")
     if ossl_info.get("cpuinfo"):
-        lines.append(f"  • CPU Info:            {ossl_info['cpuinfo']}")
+        lines.append(f"  * CPU Info:            {ossl_info['cpuinfo']}")
 
     # 3. Python Build Configuration & Flags
-    lines.append("\n🐍 Python Build Configuration & Flags:")
+    lines.append("\nPython Build Configuration & Flags:")
     if py_info.get("build_tag"):
-        lines.append(f"  • Build Details:       {py_info['build_tag']}")
+        lines.append(f"  * Build Details:       {py_info['build_tag']}")
     if py_info.get("compiler"):
-        lines.append(f"  • Compiler:            {py_info['compiler']}")
+        lines.append(f"  * Compiler:            {py_info['compiler']}")
     if py_info.get("cc"):
-        lines.append(f"  • C Compiler (CC):     {py_info['cc']}")
+        lines.append(f"  * C Compiler (CC):     {py_info['cc']}")
     if py_info.get("config_args"):
-        lines.append(f"  • Configure Arguments: {py_info['config_args']}")
+        lines.append(f"  * Configure Arguments: {py_info['config_args']}")
     if py_info.get("cflags"):
-        lines.append(f"  • CFLAGS:              {py_info['cflags']}")
+        lines.append(f"  * CFLAGS:              {py_info['cflags']}")
     if py_info.get("opt"):
-        lines.append(f"  • OPT Flags:           {py_info['opt']}")
+        lines.append(f"  * OPT Flags:           {py_info['opt']}")
     if py_info.get("ldflags"):
-        lines.append(f"  • LDFLAGS:             {py_info['ldflags']}")
+        lines.append(f"  * LDFLAGS:             {py_info['ldflags']}")
     if py_info.get("py_cflags"):
-        lines.append(f"  • PY_CFLAGS:           {py_info['py_cflags']}")
+        lines.append(f"  * PY_CFLAGS:           {py_info['py_cflags']}")
     if py_info.get("openssl_includes"):
-        lines.append(f"  • OpenSSL Includes:    {py_info['openssl_includes']}")
+        lines.append(f"  * OpenSSL Includes:    {py_info['openssl_includes']}")
     if py_info.get("openssl_ldflags"):
-        lines.append(f"  • OpenSSL LDFLAGS:     {py_info['openssl_ldflags']}")
+        lines.append(f"  * OpenSSL LDFLAGS:     {py_info['openssl_ldflags']}")
     if py_info.get("openssl_libs"):
-        lines.append(f"  • OpenSSL Libs:        {py_info['openssl_libs']}")
+        lines.append(f"  * OpenSSL Libs:        {py_info['openssl_libs']}")
 
     lines.append("\n" + bar + "\n")
     return "\n".join(lines)
