@@ -82,33 +82,45 @@ if (Test-Path "C:\Program Files\Git\usr\bin\link.exe") {
 }
 
 # Remove /Gs0 from Configurations\10-main.conf to prevent MSVC ARM64 stack corruption (Microsoft bug #11146442)
-$mainConf = Join-Path $SourceDir "Configurations\10-main.conf"
-if (Test-Path $mainConf) {
-    $confText = Get-Content $mainConf -Raw
-    if ($confText -match "/Gs0\s*") {
-        Write-Host "Patching Configurations\10-main.conf: removing /Gs0 to prevent MSVC ARM64 optimizer bug..."
-        $confText = $confText -replace "/Gs0\s*", ""
-        Set-Content -Path $mainConf -Value $confText -Encoding utf8
+if ($isArm64) {
+    $mainConf = Join-Path $SourceDir "Configurations\10-main.conf"
+    if (Test-Path $mainConf) {
+        $confText = Get-Content $mainConf -Raw
+        if ($confText -match "/Gs0\s*") {
+            Write-Host "Patching Configurations\10-main.conf: removing /Gs0 to prevent MSVC ARM64 optimizer bug..."
+            $confText = $confText -replace "/Gs0\s*", ""
+            # Must write as pure ASCII without UTF-8 BOM so Perl parser is not corrupted
+            [System.IO.File]::WriteAllText($mainConf, $confText, [System.Text.Encoding]::ASCII)
+        }
     }
 }
 
 Write-Host "Configuring OpenSSL with $perl..."
 & $perl ./Configure --libdir=lib --prefix="$InstallDir" @configOpts
+if ($LASTEXITCODE -ne 0) {
+    throw "OpenSSL Configure failed with exit code $LASTEXITCODE"
+}
 
-if (Test-Path "makefile") {
+if ($isArm64 -and (Test-Path "makefile")) {
     $mf = Get-Content "makefile" -Raw
     if ($mf -match "/Gs0") {
         Write-Host "Stripping remaining /Gs0 flags from generated makefile..."
         $mf = $mf -replace "/Gs0\s*", ""
-        Set-Content -Path "makefile" -Value $mf -Encoding ASCII
+        [System.IO.File]::WriteAllText((Join-Path (Get-Location) "makefile"), $mf, [System.Text.Encoding]::ASCII)
     }
 }
 
 Write-Host "Compiling OpenSSL with nmake..."
 & nmake
+if ($LASTEXITCODE -ne 0) {
+    throw "nmake failed with exit code $LASTEXITCODE"
+}
 
 Write-Host "Installing OpenSSL software headers and libraries..."
 & nmake install_sw
+if ($LASTEXITCODE -ne 0) {
+    throw "nmake install_sw failed with exit code $LASTEXITCODE"
+}
 
 # Ensure applink.c is available at both include\openssl\applink.c and include\applink.c
 if (Test-Path "$InstallDir\include\openssl\applink.c") {
