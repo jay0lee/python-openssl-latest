@@ -38,7 +38,14 @@ if (Test-Path "c:\strawberry\perl\bin\perl.exe") {
     $perl = "c:\strawberry\perl\bin\perl.exe"
 }
 
+$isArm64 = ($Arch -ieq "arm64")
+
 # GAM OpenSSL Config flags
+# On Windows ARM64 with MSVC (Visual Studio 2026 / MSC 19.51), /O2 and -O3 with /Gs0 trigger a known
+# compiler code generation defect where prologue calls __chkstk before saving lr/x30 (Microsoft #11146442 / OpenSSL #26239).
+# Using -O1 and stripping /Gs0 completely prevents stack corruption and produces a correct prologue.
+$optFlag = if ($isArm64) { "-O1" } else { "-O3" }
+
 $configOpts = @(
     "no-fips",
     "--api=3.0.0",
@@ -66,7 +73,7 @@ $configOpts = @(
     "no-des",
     "no-shared",
     "no-tests",
-    "-O3"
+    $optFlag
 )
 
 # Rename conflicting GNU link if in MSYS/Git bash path
@@ -74,8 +81,28 @@ if (Test-Path "C:\Program Files\Git\usr\bin\link.exe") {
     Rename-Item -Path "C:\Program Files\Git\usr\bin\link.exe" -NewName "gnulink.exe" -Force -ErrorAction SilentlyContinue
 }
 
+# Remove /Gs0 from Configurations\10-main.conf to prevent MSVC ARM64 stack corruption (Microsoft bug #11146442)
+$mainConf = Join-Path $SourceDir "Configurations\10-main.conf"
+if (Test-Path $mainConf) {
+    $confText = Get-Content $mainConf -Raw
+    if ($confText -match "/Gs0\s*") {
+        Write-Host "Patching Configurations\10-main.conf: removing /Gs0 to prevent MSVC ARM64 optimizer bug..."
+        $confText = $confText -replace "/Gs0\s*", ""
+        Set-Content -Path $mainConf -Value $confText -Encoding utf8
+    }
+}
+
 Write-Host "Configuring OpenSSL with $perl..."
 & $perl ./Configure --libdir=lib --prefix="$InstallDir" @configOpts
+
+if (Test-Path "makefile") {
+    $mf = Get-Content "makefile" -Raw
+    if ($mf -match "/Gs0") {
+        Write-Host "Stripping remaining /Gs0 flags from generated makefile..."
+        $mf = $mf -replace "/Gs0\s*", ""
+        Set-Content -Path "makefile" -Value $mf -Encoding ASCII
+    }
+}
 
 Write-Host "Compiling OpenSSL with nmake..."
 & nmake

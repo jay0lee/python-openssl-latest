@@ -227,7 +227,7 @@ jobs:
           "${PYTHON_INSTALL}/bin/python3" -VV
           "${PYTHON_INSTALL}/bin/python3" -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
           echo "Running GAM / GYB Validation Suite..."
-          "${PYTHON_INSTALL}/bin/python3" scripts/validate_runtime.py --expected-arch "${RUNNER_ARCH}"
+          "${PYTHON_INSTALL}/bin/python3" -X faulthandler scripts/validate_runtime.py --expected-arch "${RUNNER_ARCH}"
 
       # Verify Native Binary Architecture (Windows)
       - name: Verify native binary architecture (Windows)
@@ -281,7 +281,7 @@ jobs:
           & $py -VV
           & $py -c "import ssl; print(f'OpenSSL Version in Python: {ssl.OPENSSL_VERSION}')"
           Write-Host "Running GAM / GYB Validation Suite..."
-          & $py scripts\validate_runtime.py --expected-arch $env:RUNNER_ARCH
+          & $py -X faulthandler scripts\validate_runtime.py --expected-arch $env:RUNNER_ARCH
 
       # Package bundle
       - name: Package compiled bundle (Unix)
