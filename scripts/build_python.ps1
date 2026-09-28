@@ -120,9 +120,13 @@ if (-not $vsPath -and $env:MSBUILD -and (Test-Path $env:MSBUILD)) {
     $vsPath = (Get-Item $env:MSBUILD).Directory.Parent.Parent.Parent.FullName
 }
 
-# Ensure Visual Studio modern MSBuild is prioritized over .NET Framework MSBuild
-if (-not $env:MSBUILD -or -not (Test-Path $env:MSBUILD)) {
-    if ($vsPath) {
+# Ensure Visual Studio modern 64-bit MSBuild is prioritized over 32-bit x86 MSBuild
+$msBuildArch = if ($Arch -ieq "arm64") { "arm64" } else { "amd64" }
+if ($vsPath) {
+    $candidate = Join-Path $vsPath "MSBuild\Current\Bin\$msBuildArch\MSBuild.exe"
+    if (Test-Path $candidate) {
+        $env:MSBUILD = $candidate
+    } elseif (-not $env:MSBUILD -or -not (Test-Path $env:MSBUILD)) {
         $candidate = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
         if (Test-Path $candidate) {
             $env:MSBUILD = $candidate
@@ -168,9 +172,13 @@ if ($vsPath -and (Test-Path $vsPath)) {
 }
 
 # 4. Configure MSBuild response file PCbuild\msbuild.rsp so all MSBuild invocations (including nested/PGO) inherit these properties
+$preferredArch = if ($Arch -ieq "arm64") { "arm64" } else { "x64" }
+$env:PreferredToolArchitecture = $preferredArch
+
 $rspLines = @(
     "/p:ExternalProps=`"$propsSrc`"",
-    "/p:OpenSSLInstallDir=`"$resolvedOpenSSL`""
+    "/p:OpenSSLInstallDir=`"$resolvedOpenSSL`"",
+    "/p:PreferredToolArchitecture=$preferredArch"
 )
 
 # If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
@@ -190,7 +198,9 @@ Write-Host "Configured MSBuild response file PCbuild\msbuild.rsp with properties
 $rspLines | ForEach-Object { Write-Host "  $_" }
 
 # 5. Build Python
-$extraBuildArgs = @()
+$extraBuildArgs = @(
+    "`"/p:PreferredToolArchitecture=$preferredArch`""
+)
 if ($selectedToolset) {
     $extraBuildArgs += "`"/p:PlatformToolset=$selectedToolset`""
 }

@@ -20,8 +20,14 @@ if (-not (Test-Path $vcvars)) {
     throw "vcvarsall.bat not found at $vcvars"
 }
 
-# Locate Visual Studio's modern MSBuild
-$msBuildExe = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+$targetArch = if ($Arch -ieq "arm64") { "arm64" } else { "x64" }
+
+# Locate Visual Studio's modern 64-bit MSBuild
+$msBuildArch = if ($targetArch -eq "arm64") { "arm64" } else { "amd64" }
+$msBuildExe = Join-Path $vsPath "MSBuild\Current\Bin\$msBuildArch\MSBuild.exe"
+if (-not (Test-Path $msBuildExe)) {
+    $msBuildExe = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+}
 if (-not (Test-Path $msBuildExe)) {
     $found = Get-ChildItem -Path "$vsPath\MSBuild" -Filter "MSBuild.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { $msBuildExe = $found.FullName }
@@ -35,7 +41,11 @@ if (Test-Path $msBuildExe) {
     }
 }
 
-$targetArch = if ($Arch -ieq "arm64") { "arm64" } else { "x64" }
+# Ensure 64-bit hosted toolchain is preferred so compiler pass 2 doesn't hit heap space exhaustion (C1002)
+[System.Environment]::SetEnvironmentVariable("PreferredToolArchitecture", $targetArch)
+if ($env:GITHUB_ENV) {
+    "PreferredToolArchitecture<<__MSVC_ENV_EOF__`n$targetArch`n__MSVC_ENV_EOF__" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+}
 Write-Host "Activating MSVC ($targetArch) via $vcvars..."
 
 $origPath = $env:PATH -split ";"
