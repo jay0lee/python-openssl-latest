@@ -167,6 +167,8 @@ def main():
     parser.add_argument("--install-dir", help="Target installation directory")
     parser.add_argument("--token", default=os.environ.get("GITHUB_TOKEN"), help="GitHub token for API access")
     parser.add_argument("--set-env", action="store_true", default=True, help="Set GITHUB_PATH and GITHUB_ENV")
+    parser.add_argument("--quiet", action="store_true", default=False,
+                        help="Suppress display of build configuration and compiler flags summary")
     args = parser.parse_args()
 
     runner = detect_runner_info()
@@ -395,6 +397,27 @@ def main():
     ver_cmd = [py_bin, "-c", "import ssl; print(f'Using OpenSSL: {ssl.OPENSSL_VERSION}')"]
     subprocess.check_call(ver_cmd, env=run_env)
 
+    # Retrieve or generate build configuration & compiler flags summary
+    try:
+        from . import build_info
+    except (ImportError, ValueError):
+        try:
+            import build_info
+        except ImportError:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import build_info
+
+    summary = build_info.get_or_create_summary(
+        install_dir=install_dir,
+        py_bin=py_bin,
+        ssl_root=ssl_root,
+        runner_label=runner.get("specific_label"),
+        runner_arch=runner.get("arch"),
+    )
+
+    if not args.quiet and summary:
+        print("\n" + summary, flush=True)
+
     # Set GITHUB_OUTPUT
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
@@ -405,6 +428,9 @@ def main():
             f.write(f"python-version={py_ver_out}\n")
             f.write(f"openssl-path={ssl_root}\n")
             f.write(f"openssl-version={ssl_ver_out}\n")
+            if summary:
+                delimiter = f"EOF_SUMMARY_{hashlib.md5(summary.encode()).hexdigest()[:8]}"
+                f.write(f"build-summary<<{delimiter}\n{summary}\n{delimiter}\n")
 
     print("\nSetup completed successfully!")
 

@@ -44,10 +44,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Python + OpenSSL via Reusable Action
+      - name: Install Python + OpenSSL via Reusable Action (default summary display)
+        id: install-python
         uses: ./
         with:
           version: 'latest'
+
+      - name: Verify Reusable Action Outputs including build-summary
+        shell: bash
+        run: |
+          echo "Python Path: ${{ steps.install-python.outputs.python-path }}"
+          echo "Python Version: ${{ steps.install-python.outputs.python-version }}"
+          echo "OpenSSL Path: ${{ steps.install-python.outputs.openssl-path }}"
+          echo "OpenSSL Version: ${{ steps.install-python.outputs.openssl-version }}"
+          if [ -z "${{ steps.install-python.outputs.build-summary }}" ]; then
+            echo "Error: build-summary output is missing or empty"
+            exit 1
+          fi
+          echo "Successfully verified build-summary output presence."
+
+      - name: Test Reusable Action in quiet mode
+        uses: ./
+        with:
+          version: 'latest'
+          quiet: 'true'
 
       - name: Run GAM / GYB Validation Suite
         shell: bash

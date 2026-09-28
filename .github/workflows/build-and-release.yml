@@ -283,6 +283,35 @@ jobs:
           Write-Host "Running GAM / GYB Validation Suite..."
           & $py -X faulthandler scripts\validate_runtime.py --expected-arch $env:RUNNER_ARCH
 
+      # Generate Build Configuration & Compiler Flags Summary
+      - name: Generate build configuration summary (Unix)
+        if: matrix.os_family != 'windows'
+        run: |
+          python3 scripts/build_info.py \
+            --install-dir "${RUNNER_TEMP}/install" \
+            --runner-label "${RUNNER_LABEL}" \
+            --runner-arch "${RUNNER_ARCH}" \
+            --commit-sha "${GITHUB_SHA}" \
+            --output "${RUNNER_TEMP}/install/BUILD_INFO.txt"
+          cp "${RUNNER_TEMP}/install/BUILD_INFO.txt" "${RUNNER_TEMP}/install/python/BUILD_INFO.txt" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/install/BUILD_INFO.txt" "${RUNNER_TEMP}/install/ssl/BUILD_INFO.txt" 2>/dev/null || true
+
+      - name: Generate build configuration summary (Windows)
+        if: matrix.os_family == 'windows'
+        shell: powershell
+        run: |
+          $py = Join-Path $env:RUNNER_TEMP "install\python\python.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "install"
+          $outPath = Join-Path $installDir "BUILD_INFO.txt"
+          & $py scripts\build_info.py `
+            --install-dir $installDir `
+            --runner-label $env:RUNNER_LABEL `
+            --runner-arch $env:RUNNER_ARCH `
+            --commit-sha $env:GITHUB_SHA `
+            --output $outPath
+          Copy-Item $outPath (Join-Path $installDir "python\BUILD_INFO.txt") -Force -ErrorAction SilentlyContinue
+          Copy-Item $outPath (Join-Path $installDir "ssl\BUILD_INFO.txt") -Force -ErrorAction SilentlyContinue
+
       # Package bundle
       - name: Package compiled bundle (Unix)
         if: matrix.os_family != 'windows'
@@ -292,7 +321,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/dist"
           cd "${RUNNER_TEMP}/install"
           export XZ_OPT="-T0"
-          tar -cJf "${RUNNER_TEMP}/dist/${PACKAGE_NAME}" python ssl
+          tar -cJf "${RUNNER_TEMP}/dist/${PACKAGE_NAME}" python ssl BUILD_INFO.txt
           cd "${RUNNER_TEMP}/dist"
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "${PACKAGE_NAME}" > "${PACKAGE_NAME}.sha256"

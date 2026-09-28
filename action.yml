@@ -22,6 +22,10 @@ inputs:
     description: 'Automatically export PATH, PYTHON, OPENSSL_INSTALL_PATH, LD_LIBRARY_PATH, and DYLD_LIBRARY_PATH'
     required: false
     default: 'true'
+  quiet:
+    description: 'Suppress display of build configuration and compiler flags summary (defaults to false)'
+    required: false
+    default: 'false'
   github-token:
     description: 'GitHub token used to query releases and download assets'
     required: false
@@ -40,6 +44,9 @@ outputs:
   openssl-version:
     description: 'Version of OpenSSL linked with Python'
     value: ${{ steps.install.outputs.openssl-version }}
+  build-summary:
+    description: 'Text summary of configuration and compiler flags used for Python and OpenSSL'
+    value: ${{ steps.install.outputs.build-summary }}
 
 runs:
   using: 'composite'
@@ -75,6 +82,10 @@ runs:
 
         if [ -n "${{ inputs.install-dir }}" ]; then
           ARGS+=("--install-dir" "${{ inputs.install-dir }}")
+        fi
+
+        if [ "${{ inputs.quiet }}" = "true" ]; then
+          ARGS+=("--quiet")
         fi
 
         "$PY_CMD" "${ACTION_DIR}/scripts/install.py" "${ARGS[@]}"
