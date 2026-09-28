@@ -56,7 +56,7 @@ class TestDiscoverMatrix(unittest.TestCase):
         | Ubuntu 24.04 Arm64 | arm64 | `ubuntu-24.04-arm` | [ubuntu-24.04-arm64] |
         | macOS 15 Arm64 | arm64 | `macos-15` | [macOS-15-arm64] |
         | macOS 14 Arm64 [![deprecated](https://img.shields.io/badge/deprecated-E5534B)](https://github.com/actions/runner-images/issues/99999) | arm64 | `macos-14` | [macOS-14-arm64] |
-        | Windows Server 2025 | x64 | `windows-2025` | [win25] |
+        | Windows Server 2025 | x64 | `windows-latest`, `windows-2025` | [win25] |
         | Windows 11 Arm64 | arm64 | `windows-11-arm` | [win11] |
         """
 
@@ -67,7 +67,7 @@ class TestDiscoverMatrix(unittest.TestCase):
         self.assertIn("ubuntu-24.04", labels_before)
         self.assertIn("ubuntu-24.04-arm", labels_before)
         self.assertIn("macos-15", labels_before)
-        self.assertIn("windows-2025", labels_before)
+        self.assertIn("windows-latest", labels_before)
         self.assertIn("windows-11-arm", labels_before)
 
     def test_detect_and_exclude_paid_larger_runners(self):

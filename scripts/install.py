@@ -219,13 +219,22 @@ def main():
     }.get(t_family, [t_family])
 
     # 1. Exact match with specific runner label and arch (accounting for preview/variant tags)
-    if t_label:
-        clean_label = re.sub(r"-vs\d+", "", t_label)
+    candidate_labels = [t_label] if t_label else []
+    if t_family == "windows" and t_arch == "x64":
+        # Windows x86_64 packages built on windows-latest are backward-compatible with windows-2025 and windows-2022
+        for alias in ["windows-latest", "windows-2025", "windows-2022"]:
+            if alias not in candidate_labels:
+                candidate_labels.append(alias)
+
+    for cand_lbl in candidate_labels:
+        clean_label = re.sub(r"-vs\d+", "", cand_lbl)
         for asset in package_assets:
             n = asset["name"].lower()
-            if t_arch in n and (t_label in n or clean_label in n):
+            if t_arch in n and (cand_lbl in n or clean_label in n):
                 selected_asset = asset
                 break
+        if selected_asset:
+            break
 
     # 2. Family match with runner OS family and arch
     if not selected_asset:

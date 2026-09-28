@@ -319,6 +319,14 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
 
         arch = "arm64" if ("arm" in arch_raw or "arm" in canonical_label.lower()) else "x64"
 
+        # For Windows x64, binaries are backward-compatible across supported Windows Server/Client versions.
+        # Only build on the current latest stable Windows x86_64 runner ('windows-latest').
+        if os_family == "windows" and arch == "x64":
+            if "windows-latest" in labels:
+                canonical_label = "windows-latest"
+            elif any("windows-latest" in l for l in lines):
+                continue
+
         deprecated = False
         deprecation_issue_id = None
         dep_match = re.search(r"\[!\[deprecated\].*?\]\(https://github\.com/actions/runner-images/issues/(\d+)\)", image_raw)

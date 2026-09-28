@@ -346,6 +346,12 @@ jobs:
           Compress-Archive -Path (Join-Path $installDir "*") -DestinationPath $pkgPath -Force
           $hash = (Get-FileHash -Algorithm SHA256 -Path $pkgPath).Hash.ToLower()
           Set-Content -Path "${pkgPath}.sha256" -Value "$hash *$pkgName"
+          if ($env:RUNNER_LABEL -eq "windows-latest") {
+            $aliasName = "python-${env:PYTHON_VERSION}-openssl-${env:OPENSSL_VERSION}-windows-2025-${env:RUNNER_ARCH}.zip"
+            $aliasPath = Join-Path $distDir $aliasName
+            Copy-Item -Path $pkgPath -Destination $aliasPath -Force
+            Set-Content -Path "${aliasPath}.sha256" -Value "$hash *$aliasName"
+          }
           echo "package_name=$pkgName" >> $env:GITHUB_OUTPUT
           echo "package_path=$pkgPath" >> $env:GITHUB_OUTPUT
 
