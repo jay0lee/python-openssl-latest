@@ -46,22 +46,31 @@ jobs:
           python -c "import ssl; print(f'OpenSSL Version: {ssl.OPENSSL_VERSION}')"
 ```
 
-### Pinning to a Specific Version
+### Pinning to an Immutable Release
+
+Consuming workflows can either track the latest build via the floating `@v1` tag or pin a specific immutable release:
 
 ```yaml
-- name: Set up Python and OpenSSL
-  uses: jay0lee/python-openssl-latest@v1
+# Track latest stable release automatically
+- uses: jay0lee/python-openssl-latest@v1
+
+# OR pin an exact immutable release (both action code and runtime bundle are pinned)
+- uses: jay0lee/python-openssl-latest@v1.2026.09.28.1504
+
+# OR pin via the version input
+- uses: jay0lee/python-openssl-latest@v1
   with:
-    version: 'v3.14.7-ossl4.0.2' # or 'latest'
+    version: 'v1.2026.09.28.1504'
 ```
 
 ### Action Inputs
 
 | Input | Description | Default |
 | :--- | :--- | :--- |
-| `version` | Target release tag (e.g. `v3.14.7-ossl4.0.2`) or `latest` | `latest` |
+| `version` | Target release tag (e.g. `v1.2026.09.28.1504`) or `latest` | Defaults to action ref if pinned, else `latest` |
 | `install-dir` | Custom directory to extract and install into | `$RUNNER_TOOL_CACHE/python-openssl-bundle` |
 | `set-env` | Automatically export `PATH`, `PYTHON`, `OPENSSL_INSTALL_PATH`, `LD_LIBRARY_PATH`, and `DYLD_LIBRARY_PATH` | `true` |
+| `quiet` | Suppress printing compiler flags & build configuration summary | `false` |
 | `github-token` | GitHub token for querying releases and downloading assets | `${{ github.token }}` |
 
 ### Action Outputs
@@ -162,8 +171,8 @@ In GAM's `.github/workflows/build.yml`, consuming this reusable action replaces:
 
 ### 3. Packaging & Publishing
 - Bundles are compressed into `python-<py_ver>-openssl-<ossl_ver>-<runner>-<arch>.tar.xz` (or `.zip` for Windows).
-- SHA256 checksums are generated and published alongside a structured `manifest.json`.
-- Both version-specific releases (`v3.14.7-ossl4.0.2`) and a floating `latest` release are published.
+- Each build publishes an immutable, timestamped release (e.g. `v1.2026.09.28.1504`) with `--latest`.
+- The floating `@v1` git tag is automatically updated on every publish, allowing consumers to track the latest build or pin a specific immutable release.
 
 ### 4. GAM & GYB Runtime Validation Suite (`scripts/validate_runtime.py`)
 Every compiled Python + OpenSSL runtime bundle undergoes an automated, comprehensive verification suite before packaging (and during end-to-end testing of `action.yml`). The suite uses only Python's standard library with zero third-party dependencies:

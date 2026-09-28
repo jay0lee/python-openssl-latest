@@ -139,7 +139,7 @@ def find_release_metadata(repo, version, token=None):
     elif os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
 
-    if version == "latest":
+    if not version or version in ("latest", "v1"):
         url = f"https://api.github.com/repos/{repo}/releases/latest"
     else:
         tag = version if version.startswith("v") else f"v{version}"

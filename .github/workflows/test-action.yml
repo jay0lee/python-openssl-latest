@@ -44,11 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Python + OpenSSL via Reusable Action (default summary display)
+      - name: Install Python + OpenSSL via Reusable Action (default version and summary)
         id: install-python
         uses: ./
-        with:
-          version: 'latest'
 
       - name: Verify Reusable Action Outputs including build-summary
         shell: bash

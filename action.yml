@@ -11,9 +11,9 @@ inputs:
     required: false
     default: 'jay0lee/python-openssl-latest'
   version:
-    description: 'Target release tag or "latest" to automatically fetch the newest stable release'
+    description: 'Target release tag (e.g. v1.2026.09.28.1504) or "latest" to automatically fetch the newest stable release (defaults to action ref if pinned, else latest)'
     required: false
-    default: 'latest'
+    default: ''
   install-dir:
     description: 'Custom path where Python and OpenSSL should be installed (defaults to runner tool cache)'
     required: false
@@ -73,9 +73,23 @@ runs:
           REPO="jay0lee/python-openssl-latest"
         fi
 
+        TARGET_VERSION="${{ inputs.version }}"
+        ACTION_REF="${{ github.action_ref }}"
+
+        # If user did not provide an explicit version, check if the action was invoked via a specific pinned release tag
+        if [ -z "$TARGET_VERSION" ]; then
+          if [[ "$ACTION_REF" =~ ^v[0-9]+\.[0-9]+ ]]; then
+            # Pinned to a specific immutable release tag like @v1.2026.09.28.1504
+            TARGET_VERSION="$ACTION_REF"
+          else
+            # Floating major version like @v1, branch like @main, or local checkout
+            TARGET_VERSION="latest"
+          fi
+        fi
+
         ARGS=(
           "--repo" "$REPO"
-          "--version" "${{ inputs.version }}"
+          "--version" "$TARGET_VERSION"
           "--token" "${{ inputs.github-token }}"
         )
 

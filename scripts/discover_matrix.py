@@ -553,11 +553,23 @@ def write_github_step_summary(summary_file, current_date, py_ver, ossl_ver, rele
         print(f"Warning: Failed to write to step summary file {summary_file}: {e}", file=sys.stderr)
 
 
+def generate_release_tag(dt=None, prefix="v1"):
+    """
+    Generate an immutable CalVer-style release tag: v1.YYYY.MM.DD.HHMM (UTC).
+    This ensures that each published release is distinct and immutable,
+    while allowing consuming workflows to pin a specific build or use @v1.
+    """
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    return f"{prefix}.{dt.strftime('%Y.%m.%d.%H%M')}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Discover active runner matrix and latest Python/OpenSSL versions.")
     parser.add_argument("--token", help="GitHub token for API authentication", default=os.environ.get("GITHUB_TOKEN"))
     parser.add_argument("--python-version", help="Override Python version")
     parser.add_argument("--openssl-version", help="Override OpenSSL version")
+    parser.add_argument("--release-tag", help="Override release tag (default: v1.YYYY.MM.DD.HHMM)")
     parser.add_argument("--date", help="Override current date (YYYY-MM-DD) for deprecation testing")
     parser.add_argument("--free-only", action="store_true", default=True, help="Only include standard free runners for public/open-source projects (default: True)")
     parser.add_argument("--allow-paid", action="store_false", dest="free_only", help="Include paid Larger Runners (e.g. -large, -xlarge)")
@@ -575,10 +587,17 @@ def main():
     else:
         current_date = datetime.now(timezone.utc).date()
 
-    # 1. Determine target versions
+    # 1. Determine target versions and release tag
     py_ver = args.python_version or get_latest_python_version(args.token)
     ossl_ver = args.openssl_version or get_latest_openssl_version(args.token)
-    release_tag = f"v{py_ver}-ossl{ossl_ver}"
+
+    if args.release_tag:
+        release_tag = args.release_tag
+    elif args.date:
+        dt = datetime.combine(current_date, datetime.min.time(), tzinfo=timezone.utc)
+        release_tag = generate_release_tag(dt)
+    else:
+        release_tag = generate_release_tag(datetime.now(timezone.utc))
 
     # 2. Determine runners
     active_runners, all_runners = get_supported_runners(args.token, current_date, free_only=args.free_only)

@@ -14,6 +14,10 @@ on:
         description: 'Specific OpenSSL version (leave blank for latest stable)'
         required: false
         default: ''
+      release_tag:
+        description: 'Specific release tag (leave blank for automatic v1.YYYY.MM.DD.HHMM)'
+        required: false
+        default: ''
       force_rebuild:
         description: 'Force rebuild even if release already exists'
         type: boolean
@@ -63,6 +67,9 @@ jobs:
           if [ -n "${{ github.event.inputs.openssl_version }}" ]; then
             ARGS+=("--openssl-version" "${{ github.event.inputs.openssl_version }}")
           fi
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            ARGS+=("--release-tag" "${{ github.event.inputs.release_tag }}")
+          fi
           python3 scripts/discover_matrix.py "${ARGS[@]}"
 
       - name: Check if release already exists
@@ -79,9 +86,8 @@ jobs:
           fi
 
           if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists."
-            # Check if all assets exist or rebuild is needed
-            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Release $RELEASE_TAG already exists and releases are immutable. Skipping build."
+            echo "should_build=false" >> $GITHUB_OUTPUT
           else
             echo "Release $RELEASE_TAG does not exist yet. Proceeding with build."
             echo "should_build=true" >> $GITHUB_OUTPUT
@@ -373,6 +379,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Download all matrix build artifacts
         uses: actions/download-artifact@v8
@@ -408,15 +416,15 @@ jobs:
           "
           ls -la
 
-      - name: Create or update GitHub Release
+      - name: Create Immutable GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.discover.outputs.release_tag }}
           PY_VER: ${{ needs.discover.outputs.python_version }}
           OSSL_VER: ${{ needs.discover.outputs.openssl_version }}
         run: |
-          RELEASE_TITLE="Python ${PY_VER} + OpenSSL ${OSSL_VER}"
-          RELEASE_NOTES="### Automated Weekly Build: Python ${PY_VER} & OpenSSL ${OSSL_VER}
+          RELEASE_TITLE="Python ${PY_VER} + OpenSSL ${OSSL_VER} (${TAG})"
+          RELEASE_NOTES="### Release ${TAG}: Python ${PY_VER} & OpenSSL ${OSSL_VER}
 
           Compiled using GAM compilation specifications (hardened static OpenSSL, optimized Python with LTO & PGO).
 
@@ -425,31 +433,35 @@ jobs:
           - Linux Ubuntu (x64, arm64)
           - macOS (x64 Intel, arm64 Apple Silicon)
 
-          Consuming projects (such as GAM and GYB) can install this release using:
+          Consuming projects (such as GAM and GYB) can use this action via floating major version or pinned immutable release:
           \`\`\`yaml
+          # Use latest stable release via floating major version:
           - uses: ${{ github.repository }}@v1
-            with:
-              version: '${TAG}'
+
+          # OR pin this specific immutable release:
+          - uses: ${{ github.repository }}@${TAG}
           \`\`\`
           "
 
-          # Create or update release
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating existing release $TAG..."
+            echo "Release $TAG already exists (force rebuild). Updating assets..."
             gh release upload "$TAG" ./release-assets/* --clobber
+            gh release edit "$TAG" --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES" --latest
           else
-            echo "Creating new release $TAG..."
+            echo "Publishing new immutable release $TAG..."
             gh release create "$TAG" ./release-assets/* \
               --title "$RELEASE_TITLE" \
-              --notes "$RELEASE_NOTES"
+              --notes "$RELEASE_NOTES" \
+              --latest
           fi
 
-          # Also update rolling 'latest' release
-          if gh release view "latest" >/dev/null 2>&1; then
-            gh release upload "latest" ./release-assets/* --clobber
-            gh release edit "latest" --title "Latest: Python ${PY_VER} + OpenSSL ${OSSL_VER}" --notes "$RELEASE_NOTES"
-          else
-            gh release create "latest" ./release-assets/* \
-              --title "Latest: Python ${PY_VER} + OpenSSL ${OSSL_VER}" \
-              --notes "$RELEASE_NOTES"
-          fi
+      - name: Update floating v1 git tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.discover.outputs.release_tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Updating floating 'v1' git tag to point to commit for release $TAG..."
+          git tag -fa v1 -m "Release $TAG"
+          git push origin v1 --force

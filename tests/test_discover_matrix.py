@@ -3,15 +3,29 @@
 Unit tests for discover_matrix.py
 """
 
+import re
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from scripts.discover_matrix import (
     parse_brownout_from_issue,
     parse_available_runners_from_readme,
+    generate_release_tag,
 )
 
 
 class TestDiscoverMatrix(unittest.TestCase):
+
+    def test_generate_release_tag_format(self):
+        dt = datetime(2026, 9, 28, 15, 4, tzinfo=timezone.utc)
+        self.assertEqual(generate_release_tag(dt), "v1.2026.09.28.1504")
+
+    def test_generate_release_tag_custom_prefix(self):
+        dt = datetime(2026, 10, 5, 8, 30, tzinfo=timezone.utc)
+        self.assertEqual(generate_release_tag(dt, prefix="v2"), "v2.2026.10.05.0830")
+
+    def test_generate_release_tag_default_now(self):
+        tag = generate_release_tag()
+        self.assertTrue(re.match(r"^v1\.\d{4}\.\d{2}\.\d{2}\.\d{4}$", tag))
 
     def test_parse_brownout_from_direct_sentence(self):
         body = "macos-14 was deprecated July 14 and brownouts will begin October 6th, 2026."
