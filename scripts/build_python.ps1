@@ -208,11 +208,7 @@ if ($selectedToolset) {
 }
 
 Write-Host "Building Python for $buildArch..."
-if ($buildArch -eq "ARM64") {
-    & PCBuild\build.bat -c Release -p $buildArch @extraBuildArgs
-} else {
-    & PCBuild\build.bat -c Release -p $buildArch --pgo @extraBuildArgs
-}
+& PCBuild\build.bat -c Release -p $buildArch @extraBuildArgs
 if ($LASTEXITCODE -ne 0) {
     throw "PCBuild\build.bat failed with exit code $LASTEXITCODE"
 }
