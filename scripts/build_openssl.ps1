@@ -70,7 +70,6 @@ $configOpts = @(
     "no-md2",
     "no-md4",
     "no-cast",
-    "no-des",
     "no-tests",
     $optFlag
 )
