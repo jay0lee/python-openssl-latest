@@ -181,11 +181,13 @@ $rspLines = @(
     "/p:PreferredToolArchitecture=$preferredArch"
 )
 
-# If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
 $hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
-if (-not $hasDlls) {
-    $env:SkipCopySSLDLL = "true"
-    $rspLines += "/p:SkipCopySSLDLL=true"
+$env:SkipCopySSLDLL = "true"
+$rspLines += "/p:SkipCopySSLDLL=true"
+if ($hasDlls) {
+    Write-Host "Copying OpenSSL runtime DLLs to PCbuild\$osslSub..."
+    New-Item -ItemType Directory -Force -Path "PCbuild\$osslSub" | Out-Null
+    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "PCbuild\$osslSub" -Force -ErrorAction SilentlyContinue
 }
 
 if ($selectedToolset) {
@@ -224,6 +226,13 @@ if (Test-Path "PCBuild\python.bat") {
 } else {
     $pyExe = Join-Path $SourceDir "PCbuild\$osslSub\python.exe"
     & $pyExe PC\layout --precompile --preset-default --copy $InstallDir
+}
+if ($hasDlls) {
+    Write-Host "Copying OpenSSL runtime DLLs to $InstallDir..."
+    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination $InstallDir -Force -ErrorAction SilentlyContinue
+    if (Test-Path "$InstallDir\DLLs") {
+        Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "$InstallDir\DLLs" -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host "Python compilation and layout completed successfully."

@@ -71,7 +71,6 @@ $configOpts = @(
     "no-md4",
     "no-cast",
     "no-des",
-    "no-shared",
     "no-tests",
     $optFlag
 )

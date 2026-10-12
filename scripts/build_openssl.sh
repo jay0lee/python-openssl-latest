@@ -49,7 +49,6 @@ OPENSSL_CONFIG_OPTS=(
   no-md4
   no-cast
   no-des
-  no-shared
   -fPIC
   no-tests
   -O3
