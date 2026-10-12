@@ -182,12 +182,21 @@ $rspLines = @(
 )
 
 $hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
-$env:SkipCopySSLDLL = "true"
-$rspLines += "/p:SkipCopySSLDLL=true"
 if ($hasDlls) {
-    Write-Host "Copying OpenSSL runtime DLLs to PCbuild\$osslSub..."
-    New-Item -ItemType Directory -Force -Path "PCbuild\$osslSub" | Out-Null
-    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "PCbuild\$osslSub" -Force -ErrorAction SilentlyContinue
+    $env:SkipCopySSLDLL = "false"
+    $rspLines += "/p:SkipCopySSLDLL=false"
+    # Ensure DLLs exist in both bin and lib
+    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "$resolvedOpenSSL\lib" -Force -ErrorAction SilentlyContinue
+    # Add OpenSSL DLL directory to PATH so python.exe finds them during PGO training
+    $env:PATH = "$resolvedOpenSSL\bin;$resolvedOpenSSL\lib;$env:PATH"
+    Write-Host "Copying OpenSSL runtime DLLs to PCbuild\$osslSub and instrumented directories..."
+    foreach ($dir in @("PCbuild\$osslSub", "PCbuild\$osslSub\instrumented")) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination $dir -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    $env:SkipCopySSLDLL = "true"
+    $rspLines += "/p:SkipCopySSLDLL=true"
 }
 
 if ($selectedToolset) {
@@ -208,7 +217,11 @@ if ($selectedToolset) {
 }
 
 Write-Host "Building Python for $buildArch..."
-& PCBuild\build.bat -c Release -p $buildArch @extraBuildArgs
+if ($buildArch -eq "ARM64") {
+    & PCBuild\build.bat -c Release -p $buildArch @extraBuildArgs
+} else {
+    & PCBuild\build.bat -c Release -p $buildArch --pgo @extraBuildArgs
+}
 if ($LASTEXITCODE -ne 0) {
     throw "PCBuild\build.bat failed with exit code $LASTEXITCODE"
 }

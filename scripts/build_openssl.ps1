@@ -125,5 +125,11 @@ if (Test-Path "$InstallDir\include\openssl\applink.c") {
     Copy-Item -Path "$InstallDir\include\openssl\applink.c" -Destination "$InstallDir\include\applink.c" -Force
 }
 
+# Mirror OpenSSL runtime DLLs to lib directory so MSBuild and linkers find them in either location
+if (Test-Path "$InstallDir\bin\*.dll") {
+    Write-Host "Mirroring OpenSSL runtime DLLs to $InstallDir\lib..."
+    Copy-Item -Path "$InstallDir\bin\*.dll" -Destination "$InstallDir\lib" -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "OpenSSL build completed."
 & "$InstallDir\bin\openssl.exe" version -a
