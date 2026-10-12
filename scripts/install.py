@@ -349,6 +349,10 @@ def main():
         if github_path:
             with open(github_path, "a", encoding="utf-8") as f:
                 f.write(f"{py_bin_dir}\n")
+                if runner["os_family"] == "windows":
+                    scripts_dir = os.path.join(py_root, "Scripts")
+                    os.makedirs(scripts_dir, exist_ok=True)
+                    f.write(f"{scripts_dir}\n")
                 if os.path.exists(os.path.join(ssl_root, "bin")):
                     f.write(f"{os.path.join(ssl_root, 'bin')}\n")
 
