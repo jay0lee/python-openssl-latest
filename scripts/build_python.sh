@@ -74,6 +74,9 @@ elif [[ "$RUNNER_OS" == "Linux" ]]; then
   export LDFLAGS="-Wl,--strip-all"
 fi
 
+export LD_LIBRARY_PATH="${OPENSSL_INSTALL_DIR}/lib:${INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"
+export DYLD_LIBRARY_PATH="${OPENSSL_INSTALL_DIR}/lib:${INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH:-}"
+
 echo "Configuring Python..."
 ./configure \
   --with-openssl="${OPENSSL_INSTALL_DIR}" \
