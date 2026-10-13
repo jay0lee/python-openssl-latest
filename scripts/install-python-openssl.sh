@@ -105,18 +105,19 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "Fetching latest release metadata from ${CYAN}${REPO}${RESET}..."
 
-AUTH_HEADER=()
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-fi
-
 API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 if command -v curl >/dev/null 2>&1; then
-  RELEASE_JSON="$(curl -fsSL "${AUTH_HEADER[@]}" "$API_URL" || true)"
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    RELEASE_JSON="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$API_URL" || true)"
+  else
+    RELEASE_JSON="$(curl -fsSL "$API_URL" || true)"
+  fi
 else
-  WGET_AUTH=()
-  [ -n "${GITHUB_TOKEN:-}" ] && WGET_AUTH=(--header="Authorization: Bearer ${GITHUB_TOKEN}")
-  RELEASE_JSON="$(wget -qO- "${WGET_AUTH[@]}" "$API_URL" || true)"
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    RELEASE_JSON="$(wget -qO- --header="Authorization: Bearer ${GITHUB_TOKEN}" "$API_URL" || true)"
+  else
+    RELEASE_JSON="$(wget -qO- "$API_URL" || true)"
+  fi
 fi
 
 if [ -z "$RELEASE_JSON" ]; then
@@ -141,6 +142,8 @@ arch = sys.argv[2].lower()
 pref_label = sys.argv[3].lower() if len(sys.argv) > 3 else ""
 
 candidates = [a for a in assets if a.get("name", "").endswith((".tar.xz", ".tar.gz"))]
+# Sort descending so newer release builds take precedence if exact runner label is not found
+candidates.sort(key=lambda a: a.get("name", ""), reverse=True)
 
 selected = None
 # 1. Preferred runner label + architecture match
@@ -168,13 +171,16 @@ if not selected:
             break
 
 if selected:
-    print(f"{selected[\"name\"]}\t{selected[\"browser_download_url\"]}\t{data.get(\"tag_name\", \"\")}")
+    name = selected["name"]
+    url = selected["browser_download_url"]
+    tag = data.get("tag_name", "")
+    print(name + "\t" + url + "\t" + tag)
 else:
     sys.exit(2)
 ' "$OS_FAMILY" "$TARGET_ARCH" "$PREFERRED_LABEL" <<< "$RELEASE_JSON" || true)"
 fi
 
-# Portable awk/grep fallback if python3 is not yet installed
+# Portable awk/grep fallback if python3 is not available
 if [ -z "$ASSET_INFO" ]; then
   TAG_NAME="$(echo "$RELEASE_JSON" | grep -m1 '"tag_name":' | cut -d'"' -f4 || echo "latest")"
   ASSET_NAME="$(echo "$RELEASE_JSON" | grep '"name":' | grep -E '\.tar\.(xz|gz)' | grep -i "$OS_FAMILY" | grep -i "$TARGET_ARCH" | head -n1 | cut -d'"' -f4 || true)"
@@ -355,31 +361,32 @@ update_shell_file() {
   fi
 }
 
-TARGET_FILES=()
 CURRENT_SHELL="$(basename "${SHELL:-bash}")"
 
 if [ "$OS_FAMILY" = "macos" ]; then
   if [ "$CURRENT_SHELL" = "zsh" ]; then
-    TARGET_FILES+=("$HOME/.zshrc")
+    PRIMARY_CFG="$HOME/.zshrc"
   elif [ "$CURRENT_SHELL" = "bash" ]; then
     if [ -f "$HOME/.bash_profile" ]; then
-      TARGET_FILES+=("$HOME/.bash_profile")
+      PRIMARY_CFG="$HOME/.bash_profile"
     elif [ -f "$HOME/.bashrc" ]; then
-      TARGET_FILES+=("$HOME/.bashrc")
+      PRIMARY_CFG="$HOME/.bashrc"
     else
-      TARGET_FILES+=("$HOME/.bash_profile")
+      PRIMARY_CFG="$HOME/.bash_profile"
     fi
   else
-    TARGET_FILES+=("$HOME/.zshrc")
+    PRIMARY_CFG="$HOME/.zshrc"
   fi
 else
   # Linux
   if [ "$CURRENT_SHELL" = "zsh" ]; then
-    TARGET_FILES+=("$HOME/.zshrc")
+    PRIMARY_CFG="$HOME/.zshrc"
   else
-    TARGET_FILES+=("$HOME/.bashrc")
+    PRIMARY_CFG="$HOME/.bashrc"
   fi
 fi
+
+TARGET_FILES=("$PRIMARY_CFG")
 
 # Also update any other common shell config files if they already exist
 for extra_cfg in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
