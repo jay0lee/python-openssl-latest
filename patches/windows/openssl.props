@@ -5,18 +5,9 @@
     <opensslDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\</opensslDir>
     <opensslIncludeDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\include</opensslIncludeDir>
     <opensslOutDir Condition="$(OpenSSLInstallDir) != ''">$(OpenSSLInstallDir)\lib</opensslOutDir>
-    <!-- Skip copying runtime DLLs only when explicitly requested (e.g. static builds) -->
-    <SkipCopySSLDLL Condition="$(SkipCopySSLDLL) == ''">false</SkipCopySSLDLL>
+    <!-- Skip copying runtime DLLs for static (no-shared) OpenSSL builds -->
+    <SkipCopySSLDLL Condition="$(SkipCopySSLDLL) == ''">true</SkipCopySSLDLL>
   </PropertyGroup>
-
-  <ItemGroup Condition="$(SkipCopySSLDLL) != 'true'">
-    <_SSLDLL Include="$(opensslDir)bin\*.dll" />
-    <_SSLDLL Include="$(opensslOutDir)\*.dll" />
-  </ItemGroup>
-
-  <Target Name="_CopySSLDLL" Condition="$(SkipCopySSLDLL) != 'true'" AfterTargets="Build">
-    <Copy SourceFiles="@(_SSLDLL)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-  </Target>
 
   <ItemDefinitionGroup>
     <ClCompile>

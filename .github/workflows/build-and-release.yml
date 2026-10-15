@@ -135,9 +135,6 @@ jobs:
       # Build OpenSSL (Unix)
       - name: Build OpenSSL (Linux / macOS)
         if: matrix.os_family != 'windows'
-        env:
-          LD_LIBRARY_PATH: ${{ runner.temp }}/install/ssl/lib:${{ env.LD_LIBRARY_PATH }}
-          DYLD_LIBRARY_PATH: ${{ runner.temp }}/install/ssl/lib:${{ env.DYLD_LIBRARY_PATH }}
         run: |
           OPENSSL_SRC="${RUNNER_TEMP}/src/openssl"
           OPENSSL_INSTALL="${RUNNER_TEMP}/install/ssl"
@@ -155,9 +152,6 @@ jobs:
       # Build Python (Unix)
       - name: Build Python (Linux / macOS)
         if: matrix.os_family != 'windows'
-        env:
-          LD_LIBRARY_PATH: ${{ runner.temp }}/install/ssl/lib:${{ runner.temp }}/install/python/lib:${{ env.LD_LIBRARY_PATH }}
-          DYLD_LIBRARY_PATH: ${{ runner.temp }}/install/ssl/lib:${{ runner.temp }}/install/python/lib:${{ env.DYLD_LIBRARY_PATH }}
         run: |
           OPENSSL_INSTALL="${RUNNER_TEMP}/install/ssl"
           PYTHON_SRC="${RUNNER_TEMP}/src/cpython"

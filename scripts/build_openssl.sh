@@ -48,6 +48,8 @@ OPENSSL_CONFIG_OPTS=(
   no-md2
   no-md4
   no-cast
+  no-des
+  no-shared
   -fPIC
   no-tests
   -O3
@@ -108,9 +110,6 @@ for ca in "/etc/ssl/cert.pem" "/etc/ssl/certs/ca-certificates.crt" "/etc/pki/tls
     break
   fi
 done
-
-export LD_LIBRARY_PATH="${INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"
-export DYLD_LIBRARY_PATH="${INSTALL_DIR}/lib:${DYLD_LIBRARY_PATH:-}"
 
 echo "OpenSSL build completed successfully."
 "${INSTALL_DIR}/bin/openssl" version -a

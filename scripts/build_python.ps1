@@ -181,20 +181,9 @@ $rspLines = @(
     "/p:PreferredToolArchitecture=$preferredArch"
 )
 
+# If no DLLs in bin, indicate static OpenSSL build to skip _CopySSLDLL target
 $hasDlls = (Get-ChildItem -Path "$resolvedOpenSSL\bin\libcrypto*.dll" -ErrorAction SilentlyContinue).Count -gt 0
-if ($hasDlls) {
-    $env:SkipCopySSLDLL = "false"
-    $rspLines += "/p:SkipCopySSLDLL=false"
-    # Ensure DLLs exist in both bin and lib
-    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "$resolvedOpenSSL\lib" -Force -ErrorAction SilentlyContinue
-    # Add OpenSSL DLL directory to PATH so python.exe finds them during PGO training
-    $env:PATH = "$resolvedOpenSSL\bin;$resolvedOpenSSL\lib;$env:PATH"
-    Write-Host "Copying OpenSSL runtime DLLs to PCbuild\$osslSub and instrumented directories..."
-    foreach ($dir in @("PCbuild\$osslSub", "PCbuild\$osslSub\instrumented")) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination $dir -Force -ErrorAction SilentlyContinue
-    }
-} else {
+if (-not $hasDlls) {
     $env:SkipCopySSLDLL = "true"
     $rspLines += "/p:SkipCopySSLDLL=true"
 }
@@ -235,13 +224,6 @@ if (Test-Path "PCBuild\python.bat") {
 } else {
     $pyExe = Join-Path $SourceDir "PCbuild\$osslSub\python.exe"
     & $pyExe PC\layout --precompile --preset-default --copy $InstallDir
-}
-if ($hasDlls) {
-    Write-Host "Copying OpenSSL runtime DLLs to $InstallDir..."
-    Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination $InstallDir -Force -ErrorAction SilentlyContinue
-    if (Test-Path "$InstallDir\DLLs") {
-        Copy-Item -Path "$resolvedOpenSSL\bin\*.dll" -Destination "$InstallDir\DLLs" -Force -ErrorAction SilentlyContinue
-    }
 }
 
 Write-Host "Python compilation and layout completed successfully."

@@ -299,40 +299,8 @@ for ca in "/etc/ssl/cert.pem" "/etc/ssl/certs/ca-certificates.crt" "/etc/pki/tls
   fi
 done
 
-# Ensure macOS relocatability via install_name_tool
+# Ensure macOS relocatability via install_name_tool for libpython if present
 if [ "$OS_FAMILY" = "macos" ] && command -v install_name_tool >/dev/null 2>&1; then
-  echo "Configuring macOS dynamic library paths..."
-  REAL_SSL_DYLIB="$(find "${INSTALL_BASE}/ssl/lib" -name "libssl.*.dylib" -type f 2>/dev/null | head -n1 || true)"
-  REAL_CRYPTO_DYLIB="$(find "${INSTALL_BASE}/ssl/lib" -name "libcrypto.*.dylib" -type f 2>/dev/null | head -n1 || true)"
-
-  if [ -n "$REAL_SSL_DYLIB" ] && [ -n "$REAL_CRYPTO_DYLIB" ]; then
-    install_name_tool -id "${REAL_SSL_DYLIB}" "${REAL_SSL_DYLIB}" 2>/dev/null || true
-    install_name_tool -id "${REAL_CRYPTO_DYLIB}" "${REAL_CRYPTO_DYLIB}" 2>/dev/null || true
-    old_crypto="$(otool -L "${REAL_SSL_DYLIB}" 2>/dev/null | grep -E '/libcrypto\.[0-9]+\.dylib' | awk '{print $1}' || true)"
-    if [ -n "$old_crypto" ]; then
-      install_name_tool -change "$old_crypto" "${REAL_CRYPTO_DYLIB}" "${REAL_SSL_DYLIB}" 2>/dev/null || true
-    fi
-
-    if [ -f "${INSTALL_BASE}/ssl/bin/openssl" ]; then
-      old_ssl="$(otool -L "${INSTALL_BASE}/ssl/bin/openssl" 2>/dev/null | grep -E '/libssl\.[0-9]+\.dylib' | awk '{print $1}' || true)"
-      old_crypto="$(otool -L "${INSTALL_BASE}/ssl/bin/openssl" 2>/dev/null | grep -E '/libcrypto\.[0-9]+\.dylib' | awk '{print $1}' || true)"
-      [ -n "$old_ssl" ] && install_name_tool -change "$old_ssl" "${REAL_SSL_DYLIB}" "${INSTALL_BASE}/ssl/bin/openssl" 2>/dev/null || true
-      [ -n "$old_crypto" ] && install_name_tool -change "$old_crypto" "${REAL_CRYPTO_DYLIB}" "${INSTALL_BASE}/ssl/bin/openssl" 2>/dev/null || true
-    fi
-
-    while IFS= read -r bin_file; do
-      [ -f "$bin_file" ] || continue
-      old_ssl="$(otool -L "$bin_file" 2>/dev/null | grep -E '/libssl\.[0-9]+\.dylib' | awk '{print $1}' || true)"
-      old_crypto="$(otool -L "$bin_file" 2>/dev/null | grep -E '/libcrypto\.[0-9]+\.dylib' | awk '{print $1}' || true)"
-      if [ -n "$old_ssl" ]; then
-        install_name_tool -change "$old_ssl" "${REAL_SSL_DYLIB}" "$bin_file" 2>/dev/null || true
-      fi
-      if [ -n "$old_crypto" ]; then
-        install_name_tool -change "$old_crypto" "${REAL_CRYPTO_DYLIB}" "$bin_file" 2>/dev/null || true
-      fi
-    done < <(find "${INSTALL_BASE}/python" -type f \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)
-  fi
-
   for dylib in "${INSTALL_BASE}/python/lib"/libpython*.dylib; do
     if [ -f "$dylib" ]; then
       fname="$(basename "$dylib")"
@@ -372,9 +340,6 @@ update_shell_file() {
         echo "$MARKER_START"
         echo 'export PATH="$HOME/bin/python/bin:$HOME/bin/ssl/bin:$HOME/bin:$PATH"'
         echo 'export OPENSSL_INSTALL_PATH="$HOME/bin/ssl"'
-        if [ "$OS_FAMILY" = "linux" ]; then
-          echo 'export LD_LIBRARY_PATH="$HOME/bin/python/lib:$HOME/bin/ssl/lib:${LD_LIBRARY_PATH:-}"'
-        fi
         echo "$MARKER_END"
       elif [ "$line" = "$MARKER_END" ]; then
         skip=0
@@ -390,9 +355,6 @@ update_shell_file() {
       echo "$MARKER_START"
       echo 'export PATH="$HOME/bin/python/bin:$HOME/bin/ssl/bin:$HOME/bin:$PATH"'
       echo 'export OPENSSL_INSTALL_PATH="$HOME/bin/ssl"'
-      if [ "$OS_FAMILY" = "linux" ]; then
-        echo 'export LD_LIBRARY_PATH="$HOME/bin/python/lib:$HOME/bin/ssl/lib:${LD_LIBRARY_PATH:-}"'
-      fi
       echo "$MARKER_END"
     } >> "$cfg_file"
     rm -f "$tmp_cfg"
@@ -456,9 +418,6 @@ echo "--------------------------------------------------"
 
 export PATH="${INSTALL_BASE}/python/bin:${INSTALL_BASE}/ssl/bin:${INSTALL_BASE}:${PATH}"
 export OPENSSL_INSTALL_PATH="${INSTALL_BASE}/ssl"
-if [ "$OS_FAMILY" = "linux" ]; then
-  export LD_LIBRARY_PATH="${INSTALL_BASE}/python/lib:${INSTALL_BASE}/ssl/lib:${LD_LIBRARY_PATH:-}"
-fi
 
 PY_EXE="${INSTALL_BASE}/python/bin/python3"
 SSL_EXE="${INSTALL_BASE}/ssl/bin/openssl"

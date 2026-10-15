@@ -70,6 +70,8 @@ $configOpts = @(
     "no-md2",
     "no-md4",
     "no-cast",
+    "no-des",
+    "no-shared",
     "no-tests",
     $optFlag
 )
@@ -123,12 +125,6 @@ if ($LASTEXITCODE -ne 0) {
 # Ensure applink.c is available at both include\openssl\applink.c and include\applink.c
 if (Test-Path "$InstallDir\include\openssl\applink.c") {
     Copy-Item -Path "$InstallDir\include\openssl\applink.c" -Destination "$InstallDir\include\applink.c" -Force
-}
-
-# Mirror OpenSSL runtime DLLs to lib directory so MSBuild and linkers find them in either location
-if (Test-Path "$InstallDir\bin\*.dll") {
-    Write-Host "Mirroring OpenSSL runtime DLLs to $InstallDir\lib..."
-    Copy-Item -Path "$InstallDir\bin\*.dll" -Destination "$InstallDir\lib" -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "OpenSSL build completed."
