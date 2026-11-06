@@ -225,6 +225,16 @@ def main():
         for alias in ["windows-latest", "windows-2025", "windows-2022"]:
             if alias not in candidate_labels:
                 candidate_labels.append(alias)
+    elif t_family == "macos" and t_label:
+        # Centrally handle xcode-XX <-> macos-XX aliases for macOS preview/GA runners
+        if "macos-" in t_label:
+            xc = t_label.replace("macos-", "xcode-").replace("-intel", "")
+            if xc not in candidate_labels:
+                candidate_labels.append(xc)
+        elif "xcode-" in t_label:
+            mc = t_label.replace("xcode-", "macos-")
+            if mc not in candidate_labels:
+                candidate_labels.append(mc)
 
     for cand_lbl in candidate_labels:
         clean_label = re.sub(r"-vs\d+", "", cand_lbl)

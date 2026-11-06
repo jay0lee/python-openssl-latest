@@ -154,6 +154,20 @@ if pref_label:
             selected = a
             break
 
+# 1b. Preferred runner label alias (e.g. macos-27 <-> xcode-27)
+if not selected and pref_label:
+    alias_label = ""
+    if "macos-" in pref_label:
+        alias_label = pref_label.replace("macos-", "xcode-").replace("-intel", "")
+    elif "xcode-" in pref_label:
+        alias_label = pref_label.replace("xcode-", "macos-")
+    if alias_label:
+        for a in candidates:
+            n = a["name"].lower()
+            if alias_label in n and arch in n:
+                selected = a
+                break
+
 # 2. OS family token + architecture match
 if not selected:
     family_tokens = ["macos", "darwin"] if os_family == "macos" else ["ubuntu", "linux", "debian"]

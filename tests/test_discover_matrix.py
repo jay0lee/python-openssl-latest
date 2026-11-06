@@ -6,9 +6,11 @@ Unit tests for discover_matrix.py
 import re
 import unittest
 from datetime import date, datetime, timezone
+from unittest.mock import patch
 from scripts.discover_matrix import (
     parse_brownout_from_issue,
     parse_available_runners_from_readme,
+    get_supported_runners,
     generate_release_tag,
 )
 
@@ -112,6 +114,37 @@ class TestDiscoverMatrix(unittest.TestCase):
         macos15_intel = next(r for r in runners if r["os"] == "macos-15-intel")
         self.assertFalse(macos15_intel["paid"])
         self.assertTrue(macos15_intel["active"])
+
+    def test_parse_preview_and_xcode_runner_as_macos(self):
+        sample_readme = """
+        ## Available Images
+
+        | Image | Architecture | YAML Label | Included Software |
+        | --------------------|--------------|---------------------|------------------|
+        | Ubuntu Slim | x64 | `ubuntu-slim` | [ubuntu-slim] |
+        | Xcode 27 [![preview](https://img.shields.io/badge/preview-0969DA)](https://github.com/actions/runner-images/issues/14404) | arm64 | `xcode-27` or `xcode-27-xlarge` | [xcode-27] |
+        | macOS 26 Arm64 | arm64 | `macos-26` | [macOS-26] |
+        """
+        runners = parse_available_runners_from_readme(sample_readme, free_only=True)
+        labels = [r["os"] for r in runners]
+
+        # Ubuntu Slim should be excluded
+        self.assertNotIn("ubuntu-slim", labels)
+
+        # Xcode 27 should be included as macos family with preview flag and macos-27 alias
+        self.assertIn("xcode-27", labels)
+        xcode27 = next(r for r in runners if r["os"] == "xcode-27")
+        self.assertEqual(xcode27["os_family"], "macos")
+        self.assertEqual(xcode27["arch"], "arm64")
+        self.assertTrue(xcode27["active"])
+        self.assertTrue(xcode27["preview"])
+        self.assertEqual(xcode27["alias"], "macos-27")
+
+    def test_get_supported_runners_raises_on_api_failure(self):
+        with patch("scripts.discover_matrix.github_api_get", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                get_supported_runners()
+            self.assertIn("Failed to fetch actions/runner-images README", str(ctx.exception))
 
 
 if __name__ == "__main__":

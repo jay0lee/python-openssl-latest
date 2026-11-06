@@ -107,6 +107,7 @@ jobs:
       RUNNER_LABEL: ${{ matrix.os }}
       RUNNER_ARCH: ${{ matrix.arch }}
       OS_FAMILY: ${{ matrix.os_family }}
+      PACKAGE_ALIAS: ${{ matrix.alias }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -336,6 +337,18 @@ jobs:
           else
             python3 -c "import hashlib; print(f'{hashlib.sha256(open(\"${PACKAGE_NAME}\", \"rb\").read()).hexdigest()}  ${PACKAGE_NAME}')" > "${PACKAGE_NAME}.sha256"
           fi
+          # Centrally publish alias if defined (e.g. xcode-27 -> macos-27)
+          if [ -n "${PACKAGE_ALIAS:-}" ]; then
+            ALIAS_NAME="python-${PYTHON_VERSION}-openssl-${OPENSSL_VERSION}-${PACKAGE_ALIAS}-${RUNNER_ARCH}.tar.xz"
+            cp "${PACKAGE_NAME}" "${ALIAS_NAME}"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "${ALIAS_NAME}" > "${ALIAS_NAME}.sha256"
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "${ALIAS_NAME}" > "${ALIAS_NAME}.sha256"
+            else
+              python3 -c "import hashlib; print(f'{hashlib.sha256(open(\"${ALIAS_NAME}\", \"rb\").read()).hexdigest()}  ${ALIAS_NAME}')" > "${ALIAS_NAME}.sha256"
+            fi
+          fi
           echo "package_name=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
           echo "package_path=${RUNNER_TEMP}/dist/${PACKAGE_NAME}" >> $GITHUB_OUTPUT
 
@@ -352,7 +365,12 @@ jobs:
           Compress-Archive -Path (Join-Path $installDir "*") -DestinationPath $pkgPath -Force
           $hash = (Get-FileHash -Algorithm SHA256 -Path $pkgPath).Hash.ToLower()
           Set-Content -Path "${pkgPath}.sha256" -Value "$hash *$pkgName"
-          if ($env:RUNNER_LABEL -eq "windows-latest") {
+          if ($env:PACKAGE_ALIAS) {
+            $aliasName = "python-${env:PYTHON_VERSION}-openssl-${env:OPENSSL_VERSION}-${env:PACKAGE_ALIAS}-${env:RUNNER_ARCH}.zip"
+            $aliasPath = Join-Path $distDir $aliasName
+            Copy-Item -Path $pkgPath -Destination $aliasPath -Force
+            Set-Content -Path "${aliasPath}.sha256" -Value "$hash *$aliasName"
+          } elseif ($env:RUNNER_LABEL -eq "windows-latest") {
             $aliasName = "python-${env:PYTHON_VERSION}-openssl-${env:OPENSSL_VERSION}-windows-2025-${env:RUNNER_ARCH}.zip"
             $aliasPath = Join-Path $distDir $aliasName
             Copy-Item -Path $pkgPath -Destination $aliasPath -Force

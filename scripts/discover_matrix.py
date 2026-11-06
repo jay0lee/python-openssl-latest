@@ -278,8 +278,10 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
         arch_raw = cols[arch_idx].lower()
         labels_raw = cols[label_idx]
 
-        if "preview" in image_raw.lower() or "slim" in image_raw.lower() or "xcode" in image_raw.lower():
+        if "slim" in image_raw.lower():
             continue
+
+        is_preview = "preview" in image_raw.lower()
 
         labels = re.findall(r"`([^`]+)`", labels_raw)
         if not labels:
@@ -303,14 +305,14 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
             if not canonical_label:
                 canonical_label = free_labels[0]
 
-        # Deduplicate preview / migration variant images (e.g. windows-11-vs2026-arm, windows-2025-vs2026)
-        if "-vs2026" in canonical_label or "with visual studio" in image_raw.lower():
+        # Deduplicate preview / migration variant images (e.g. windows-2025-vs2026)
+        if "-vs2026" in canonical_label:
             continue
 
         os_lower = canonical_label.lower()
         if "ubuntu" in os_lower:
             os_family = "linux"
-        elif "macos" in os_lower or "osx" in os_lower:
+        elif "macos" in os_lower or "osx" in os_lower or "xcode" in os_lower:
             os_family = "macos"
         elif "windows" in os_lower or "win" in os_lower:
             os_family = "windows"
@@ -319,11 +321,21 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
 
         arch = "arm64" if ("arm" in arch_raw or "arm" in canonical_label.lower()) else "x64"
 
+        # Centrally map downstream aliases (e.g. xcode-27 -> macos-27, windows-latest -> windows-2025)
+        alias = None
+        if os_family == "macos":
+            m = re.match(r"^xcode-(\d+)", canonical_label)
+            if m:
+                alias = f"macos-{m.group(1)}"
+        elif canonical_label == "windows-latest":
+            alias = "windows-2025"
+
         # For Windows x64, binaries are backward-compatible across supported Windows Server/Client versions.
         # Only build on the current latest stable Windows x86_64 runner ('windows-latest').
         if os_family == "windows" and arch == "x64":
             if "windows-latest" in labels:
                 canonical_label = "windows-latest"
+                alias = "windows-2025"
             elif any("windows-latest" in l for l in lines):
                 continue
 
@@ -357,6 +369,8 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
             "os_family": os_family,
             "arch": arch,
             "name": canonical_label,
+            "alias": alias,
+            "preview": is_preview,
             "deprecated": deprecated,
             "paid": is_paid,
             "first_brownout": first_brownout_str,
@@ -371,25 +385,12 @@ def parse_available_runners_from_readme(readme_content, token=None, current_date
 def get_supported_runners(token=None, current_date=None, free_only=True):
     """Fetch README from actions/runner-images and return active runners."""
     readme_data = github_api_get("https://api.github.com/repos/actions/runner-images/readme", token)
-    if readme_data and "content" in readme_data:
-        readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
-        all_runners = parse_available_runners_from_readme(readme_content, token, current_date, free_only=free_only)
-    else:
-        all_runners = [
-            {"os": "ubuntu-26.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-26.04", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-26.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-26.04-arm", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-24.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-24.04", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-24.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-24.04-arm", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-22.04", "os_family": "linux", "arch": "x64", "name": "ubuntu-22.04", "deprecated": False, "paid": False, "active": True},
-            {"os": "ubuntu-22.04-arm", "os_family": "linux", "arch": "arm64", "name": "ubuntu-22.04-arm", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-15", "os_family": "macos", "arch": "arm64", "name": "macos-15", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-15-intel", "os_family": "macos", "arch": "x64", "name": "macos-15-intel", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-26", "os_family": "macos", "arch": "arm64", "name": "macos-26", "deprecated": False, "paid": False, "active": True},
-            {"os": "macos-26-intel", "os_family": "macos", "arch": "x64", "name": "macos-26-intel", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-2025", "os_family": "windows", "arch": "x64", "name": "windows-2025", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-2022", "os_family": "windows", "arch": "x64", "name": "windows-2022", "deprecated": False, "paid": False, "active": True},
-            {"os": "windows-11-arm", "os_family": "windows", "arch": "arm64", "name": "windows-11-arm", "deprecated": False, "paid": False, "active": True},
-        ]
+    if not readme_data or "content" not in readme_data:
+        raise RuntimeError("Failed to fetch actions/runner-images README from GitHub API")
+    readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
+    all_runners = parse_available_runners_from_readme(readme_content, token, current_date, free_only=free_only)
+    if not all_runners:
+        raise RuntimeError("Failed to parse runners from actions/runner-images README")
 
     seen = set()
     active_runners = []
@@ -454,9 +455,14 @@ def print_pretty_report(current_date, py_ver, ossl_ver, release_tag, all_runners
             if r.get("deprecated"):
                 status_str = style.yellow("▲ DEPRECATED")
                 details_str = f"Cutoff: {r.get('cutoff_date')}"
+            elif r.get("preview"):
+                status_str = style.cyan("✦ PREVIEW")
+                alias_str = f" (Alias: {r.get('alias')})" if r.get("alias") else ""
+                details_str = style.dim(f"Preview Runner{alias_str}")
             else:
                 status_str = style.green("● ACTIVE")
-                details_str = style.dim("Free Standard Runner")
+                alias_str = f" (Alias: {r.get('alias')})" if r.get("alias") else ""
+                details_str = style.dim(f"Free Standard Runner{alias_str}")
         else:
             if r.get("paid"):
                 status_str = style.yellow("💰 PAID")
@@ -529,9 +535,14 @@ def write_github_step_summary(summary_file, current_date, py_ver, ossl_ver, rele
             if r.get("deprecated"):
                 status = "⚠️ **Active (Deprecated)**"
                 note = f"Approaching brownouts on {brownout}"
+            elif r.get("preview"):
+                status = "🚀 **Active (Preview)**"
+                alias_note = f" (Alias: `{r.get('alias')}`)" if r.get("alias") else ""
+                note = f"Preview Runner Image{alias_note}"
             else:
                 status = "✅ **Active (Free)**"
-                note = "Standard Free Runner (GA)"
+                alias_note = f" (Alias: `{r.get('alias')}`)" if r.get("alias") else ""
+                note = f"Standard Free Runner (GA){alias_note}"
         else:
             if r.get("paid"):
                 status = "💰 **Paid Larger Runner**"
